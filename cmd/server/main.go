@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/joho/godotenv"
+	"github.com/pterm/pterm"
 	"github.com/thathurleyguy/gladio/cmd/config"
 	"go.mongodb.org/mongo-driver/bson"
 )
@@ -85,8 +86,12 @@ func statThread(inputChannel chan FuncResult) {
 					totalTime += v.avgSpeed
 					totalInserts += v.numInserts
 				}
-				fmt.Printf("Inserts/sec:\t%d\n", totalInserts/tickTime)
-				fmt.Printf("Avg insert:\t%dus\n", totalTime/len(stats))
+				td := [][]string{
+					{"Operation", "Per Second", "Avg Speed (us)"},
+				}
+				td = append(td, []string{"Insert", fmt.Sprint(totalInserts / tickTime), fmt.Sprint(totalTime / len(stats))})
+				boxedTable, _ := pterm.DefaultTable.WithHasHeader().WithData(td).WithBoxed().Srender()
+				pterm.Println(boxedTable)
 				stats = []FuncResult{}
 			} else {
 				fmt.Println("No stats this tick...")
@@ -106,7 +111,12 @@ func main() {
 	defer config.Close()
 
 	collection := config.MongoClient.Database("gladio").Collection("games")
-	collection.Database().Drop(ctx)
+	err := collection.Database().Drop(ctx)
+	if err != nil {
+		fmt.Println("Error dropping DB: ", err)
+	} else {
+		fmt.Println("Dropped database")
+	}
 
 	inputChannel := make(chan FuncResult)
 	bencher := &Bencher{
@@ -127,7 +137,4 @@ func main() {
 	go statThread(inputChannel)
 
 	time.Sleep(10 * time.Minute)
-	/*
-	  List databases
-	*/
 }
