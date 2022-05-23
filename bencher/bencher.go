@@ -28,17 +28,17 @@ type Transaction struct {
 }
 
 type Bencher struct {
-	ctx                  context.Context
-	config               *config.Config
-	workerId             int
-	returnChannel        chan FuncResult
-	workerMap            map[int]*InsertWorker
-	numInsertWorkers     int
-	numIDReadWorkers     int
-	numAggregationWorker int
-	statTickSpeedMillis  int
-	database             string
-	collection           string
+	ctx                   context.Context
+	config                *config.Config
+	workerId              int
+	returnChannel         chan FuncResult
+	workerMap             map[int]*InsertWorker
+	numInsertWorkers      int
+	numIDReadWorkers      int
+	numAggregationWorkers int
+	statTickSpeedMillis   int
+	database              string
+	collection            string
 }
 
 type FuncResult struct {
@@ -50,16 +50,16 @@ type FuncResult struct {
 func NewBencher(ctx context.Context, config *config.Config) *Bencher {
 	inputChannel := make(chan FuncResult)
 	bencher := &Bencher{
-		ctx:                  ctx,
-		config:               config,
-		returnChannel:        inputChannel,
-		workerMap:            map[int]*InsertWorker{},
-		numInsertWorkers:     2,
-		numIDReadWorkers:     2,
-		numAggregationWorker: 1,
-		statTickSpeedMillis:  100,
-		database:             "mongo_bench",
-		collection:           "transactions",
+		ctx:                   ctx,
+		config:                config,
+		returnChannel:         inputChannel,
+		workerMap:             map[int]*InsertWorker{},
+		numInsertWorkers:      2,
+		numIDReadWorkers:      2,
+		numAggregationWorkers: 1,
+		statTickSpeedMillis:   100,
+		database:              "mongo_bench",
+		collection:            "transactions",
 	}
 	return bencher
 }
@@ -80,7 +80,7 @@ func tableRow(stats []int, numWorkers int, statType string) []string {
 	return []string{statType, fmt.Sprint(perSecond), fmt.Sprint(avgSpeed)}
 }
 
-func (bencher *Bencher) StatThread() {
+func (bencher *Bencher) StatWorker() {
 	tickTime := 200
 	ticker := time.NewTicker(time.Duration(tickTime) * time.Millisecond)
 	stats := []FuncResult{}
@@ -128,7 +128,7 @@ func (bencher *Bencher) StatThread() {
 				}
 				td = append(td, tableRow(statMap["insert"], bencher.numInsertWorkers, "Insert"))
 				td = append(td, tableRow(statMap["id_read"], bencher.numIDReadWorkers, "ID Reads"))
-				td = append(td, tableRow(statMap["aggregation"], bencher.numAggregationWorker, "Aggregations"))
+				td = append(td, tableRow(statMap["aggregation"], bencher.numAggregationWorkers, "Aggregations"))
 				boxedTable, _ := pterm.DefaultTable.WithHasHeader().WithData(td).WithBoxed().Srender()
 				area.Update(boxedTable)
 			}
@@ -162,10 +162,10 @@ func (bencher *Bencher) Start() {
 	for i := 0; i < bencher.numIDReadWorkers; i++ {
 		StartIDReadWorker(bencher)
 	}
-	for i := 0; i < bencher.numAggregationWorker; i++ {
+	for i := 0; i < bencher.numAggregationWorkers; i++ {
 		StartAggregationWorker(bencher)
 	}
-	go bencher.StatThread()
+	go bencher.StatWorker()
 
 	time.Sleep(10 * time.Minute)
 }

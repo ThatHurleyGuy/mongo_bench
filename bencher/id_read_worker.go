@@ -17,11 +17,11 @@ func StartIDReadWorker(bencher *Bencher) *IDReadWorker {
 	worker := &IDReadWorker{
 		bencher: bencher,
 	}
-	go worker.ReadThread()
+	go worker.Start()
 	return worker
 }
 
-func (worker *IDReadWorker) ReadThread() {
+func (worker *IDReadWorker) Start() {
 	ticker := time.NewTicker(time.Duration(worker.bencher.statTickSpeedMillis) * time.Millisecond)
 	numOps := 0
 	totalTimeMicros := 0

@@ -27,11 +27,11 @@ func StartInsertWorker(bencher *Bencher, workerId int) *InsertWorker {
 		bencher:  bencher,
 		workerId: workerId,
 	}
-	go insertWorker.InsertThread()
+	go insertWorker.Start()
 	return insertWorker
 }
 
-func (insertWorker *InsertWorker) InsertThread() {
+func (insertWorker *InsertWorker) Start() {
 	ticker := time.NewTicker(time.Duration(insertWorker.bencher.statTickSpeedMillis) * time.Millisecond)
 	numInserts := 0
 	totalTimeMicros := 0

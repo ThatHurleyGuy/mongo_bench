@@ -24,11 +24,11 @@ func StartAggregationWorker(bencher *Bencher) *AggregationWorker {
 	worker := &AggregationWorker{
 		bencher: bencher,
 	}
-	go worker.AggregationThread()
+	go worker.Start()
 	return worker
 }
 
-func (worker *AggregationWorker) AggregationThread() {
+func (worker *AggregationWorker) Start() {
 	ticker := time.NewTicker(time.Duration(worker.bencher.statTickSpeedMillis) * time.Millisecond)
 	numOps := 0
 	totalTimeMicros := 0
