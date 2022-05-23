@@ -2,10 +2,10 @@ package bencher
 
 import (
 	"log"
+	"math/rand"
 	"time"
 
 	"github.com/joho/godotenv"
-	"go.mongodb.org/mongo-driver/bson"
 )
 
 func init() {
@@ -36,7 +36,6 @@ func (insertWorker *InsertWorker) InsertThread() {
 	numInserts := 0
 	totalTimeMicros := 0
 	collection := insertWorker.bencher.Collection()
-	doc := bson.M{"title": "World", "body": "Hello World"}
 
 	insertWorker.lastId = 0
 	workerIdOffset := insertWorker.workerId * 100_000_000_000
@@ -53,8 +52,11 @@ func (insertWorker *InsertWorker) InsertThread() {
 			totalTimeMicros = 0
 		default:
 			start := time.Now()
-			doc["_id"] = insertWorker.lastId + 1 + workerIdOffset
-			_, insertErr := collection.InsertOne(insertWorker.bencher.ctx, doc)
+			txn := Transaction{
+				ID:     int64(insertWorker.lastId + 1 + workerIdOffset),
+				Amount: rand.Intn(10000),
+			}
+			_, insertErr := collection.InsertOne(insertWorker.bencher.ctx, txn)
 			if insertErr != nil {
 				log.Fatal(insertErr)
 			}

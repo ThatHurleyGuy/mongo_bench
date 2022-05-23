@@ -11,6 +11,11 @@ import (
 	"go.mongodb.org/mongo-driver/mongo"
 )
 
+type Transaction struct {
+	ID     int64 `bson:"_id,omitempty"`
+	Amount int   `bson:"amount,omitempty"`
+}
+
 type Bencher struct {
 	ctx                 context.Context
 	config              *config.Config
