@@ -23,13 +23,14 @@ func init() {
 }
 
 type Bencher struct {
-	ctx              context.Context
-	config           *config.Config
-	workerId         int
-	returnChannel    chan FuncResult
-	workerMap        map[int]*InsertWorker
-	numInsertWorkers int
-	numIDReadWorkers int
+	ctx                 context.Context
+	config              *config.Config
+	workerId            int
+	returnChannel       chan FuncResult
+	workerMap           map[int]*InsertWorker
+	numInsertWorkers    int
+	numIDReadWorkers    int
+	statTickSpeedMillis int
 }
 
 type InsertWorker struct {
@@ -43,13 +44,13 @@ type IDReadWorker struct {
 }
 
 type FuncResult struct {
-	numOps   int
-	avgSpeed int
-	opType   string
+	numOps     int
+	timeMicros int
+	opType     string
 }
 
 func (insertWorker *InsertWorker) InsertWorkerThread() {
-	ticker := time.NewTicker(1 * time.Second)
+	ticker := time.NewTicker(time.Duration(insertWorker.bencher.statTickSpeedMillis) * time.Millisecond)
 	numInserts := 0
 	totalTimeMicros := 0
 	collection := insertWorker.bencher.config.MongoClient.Database("gladio").Collection("games")
@@ -62,9 +63,9 @@ func (insertWorker *InsertWorker) InsertWorkerThread() {
 		select {
 		case <-ticker.C:
 			insertWorker.bencher.returnChannel <- FuncResult{
-				numOps:   numInserts,
-				avgSpeed: totalTimeMicros / numInserts,
-				opType:   "insert",
+				numOps:     numInserts,
+				timeMicros: totalTimeMicros,
+				opType:     "insert",
 			}
 			numInserts = 0
 			totalTimeMicros = 0
@@ -83,7 +84,7 @@ func (insertWorker *InsertWorker) InsertWorkerThread() {
 }
 
 func (worker *IDReadWorker) readThread() {
-	ticker := time.NewTicker(1 * time.Second)
+	ticker := time.NewTicker(time.Duration(worker.bencher.statTickSpeedMillis) * time.Millisecond)
 	numOps := 0
 	totalTimeMicros := 0
 	collection := worker.bencher.config.MongoClient.Database("gladio").Collection("games")
@@ -91,14 +92,10 @@ func (worker *IDReadWorker) readThread() {
 	for {
 		select {
 		case <-ticker.C:
-			avgSpeed := 0
-			if numOps > 0 {
-				avgSpeed = totalTimeMicros / numOps
-			}
 			worker.bencher.returnChannel <- FuncResult{
-				numOps:   numOps,
-				avgSpeed: avgSpeed,
-				opType:   "id_read",
+				numOps:     numOps,
+				timeMicros: totalTimeMicros,
+				opType:     "id_read",
 			}
 			numOps = 0
 			totalTimeMicros = 0
@@ -122,42 +119,70 @@ func (worker *IDReadWorker) readThread() {
 	}
 }
 
+func tableRow(stats []int, numWorkers int, statType string) []string {
+	avgSpeed := 0
+	perSecond := 0
+	if stats[0] > 0 {
+		avgSpeed = stats[1] / stats[0]
+	}
+	if stats[1] > 0 {
+		perSecond = int(float64(numWorkers*stats[0]) / float64(float64(stats[1])/1_000_000))
+	}
+	return []string{statType, fmt.Sprint(perSecond), fmt.Sprint(avgSpeed)}
+}
+
 func (bencher *Bencher) statThread() {
-	tickTime := 5
-	ticker := time.NewTicker(time.Duration(tickTime) * time.Second)
+	tickTime := 200
+	ticker := time.NewTicker(time.Duration(tickTime) * time.Millisecond)
 	stats := []FuncResult{}
+	area, err := pterm.DefaultArea.Start()
+	if err != nil {
+		log.Fatal("Error setting up output area: ", err)
+	}
+
+	lastStatBlock := time.Now()
+	statMap := map[string][]int{}
+	statMap["insert"] = []int{0, 0, 0}
+	statMap["id_read"] = []int{0, 0, 0}
 	for {
 		select {
 		case result := <-bencher.returnChannel:
 			stats = append(stats, result)
 		case <-ticker.C:
+			if time.Since(lastStatBlock).Seconds() > 10 {
+				lastStatBlock = time.Now()
+				statMap = map[string][]int{}
+				statMap["insert"] = []int{0, 0, 0}
+				statMap["id_read"] = []int{0, 0, 0}
+				area.Stop()
+				fmt.Println()
+				area, err = pterm.DefaultArea.Start()
+				if err != nil {
+					log.Fatal("Error setting up output area: ", err)
+				}
+			}
+
 			if len(stats) > 0 {
-				statMap := map[string][]int{}
 				for _, v := range stats {
 					_, ok := statMap[v.opType]
 					if ok {
-						statMap[v.opType][0] += v.avgSpeed
-						statMap[v.opType][1] += v.numOps
+						statMap[v.opType][0] += v.numOps
+						statMap[v.opType][1] += v.timeMicros
 						statMap[v.opType][2]++
 					} else {
-						statMap[v.opType] = []int{v.avgSpeed, v.numOps, 1}
+						statMap[v.opType] = []int{v.numOps, v.timeMicros, 1}
 					}
 				}
+				stats = []FuncResult{}
 				td := [][]string{
 					{"Operation", "Per Second", "Avg Speed (us)"},
 				}
-				insertStats := statMap["insert"]
-				td = append(td, []string{"Insert", fmt.Sprint(insertStats[1] / tickTime), fmt.Sprint(insertStats[0] / insertStats[2])})
-				idReadStats := statMap["id_read"]
-				td = append(td, []string{"ID Reads", fmt.Sprint(idReadStats[1] / tickTime), fmt.Sprint(idReadStats[0] / idReadStats[2])})
+				td = append(td, tableRow(statMap["insert"], bencher.numInsertWorkers, "Insert"))
+				td = append(td, tableRow(statMap["id_read"], bencher.numIDReadWorkers, "ID Reads"))
 				boxedTable, _ := pterm.DefaultTable.WithHasHeader().WithData(td).WithBoxed().Srender()
-				pterm.Println(boxedTable)
-				stats = []FuncResult{}
-			} else {
-				fmt.Println("No stats this tick...")
+				area.Update(boxedTable)
 			}
 		}
-
 	}
 }
 
@@ -180,12 +205,13 @@ func main() {
 
 	inputChannel := make(chan FuncResult)
 	bencher := &Bencher{
-		ctx:              ctx,
-		config:           config,
-		returnChannel:    inputChannel,
-		workerMap:        map[int]*InsertWorker{},
-		numInsertWorkers: 2,
-		numIDReadWorkers: 2,
+		ctx:                 ctx,
+		config:              config,
+		returnChannel:       inputChannel,
+		workerMap:           map[int]*InsertWorker{},
+		numInsertWorkers:    2,
+		numIDReadWorkers:    2,
+		statTickSpeedMillis: 100,
 	}
 
 	for i := 0; i < bencher.numInsertWorkers; i++ {
