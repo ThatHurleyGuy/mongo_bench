@@ -35,7 +35,7 @@ func (insertWorker *InsertWorker) InsertThread() {
 	ticker := time.NewTicker(time.Duration(insertWorker.bencher.statTickSpeedMillis) * time.Millisecond)
 	numInserts := 0
 	totalTimeMicros := 0
-	collection := insertWorker.bencher.config.MongoClient.Database("gladio").Collection("games")
+	collection := insertWorker.bencher.Collection()
 	doc := bson.M{"title": "World", "body": "Hello World"}
 
 	insertWorker.lastId = 0

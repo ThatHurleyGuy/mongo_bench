@@ -25,7 +25,7 @@ func (worker *IDReadWorker) ReadThread() {
 	ticker := time.NewTicker(time.Duration(worker.bencher.statTickSpeedMillis) * time.Millisecond)
 	numOps := 0
 	totalTimeMicros := 0
-	collection := worker.bencher.config.MongoClient.Database("gladio").Collection("games")
+	collection := worker.bencher.Collection()
 
 	for {
 		select {

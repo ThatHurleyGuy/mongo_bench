@@ -8,6 +8,7 @@ import (
 
 	"github.com/pterm/pterm"
 	"github.com/thathurleyguy/gladio/cmd/config"
+	"go.mongodb.org/mongo-driver/mongo"
 )
 
 type Bencher struct {
@@ -19,6 +20,8 @@ type Bencher struct {
 	numInsertWorkers    int
 	numIDReadWorkers    int
 	statTickSpeedMillis int
+	database            string
+	collection          string
 }
 
 type FuncResult struct {
@@ -37,8 +40,14 @@ func NewBencher(ctx context.Context, config *config.Config) *Bencher {
 		numInsertWorkers:    2,
 		numIDReadWorkers:    2,
 		statTickSpeedMillis: 100,
+		database:            "mongo_bench",
+		collection:          "transactions",
 	}
 	return bencher
+}
+
+func (bencher *Bencher) Collection() *mongo.Collection {
+	return bencher.config.MongoClient.Database(bencher.database).Collection(bencher.collection)
 }
 
 func tableRow(stats []int, numWorkers int, statType string) []string {
@@ -109,8 +118,7 @@ func (bencher *Bencher) StatThread() {
 }
 
 func (bencher *Bencher) Start() {
-	collection := bencher.config.MongoClient.Database("gladio").Collection("games")
-	err := collection.Database().Drop(bencher.ctx)
+	err := bencher.Collection().Database().Drop(bencher.ctx)
 	if err != nil {
 		fmt.Println("Error dropping DB: ", err)
 	} else {
