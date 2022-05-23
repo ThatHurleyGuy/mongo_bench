@@ -4,29 +4,41 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"math/rand"
 	"time"
 
 	"github.com/pterm/pterm"
 	"github.com/thathurleyguy/gladio/cmd/config"
+	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
 )
 
+var TransactionCategories = []string{"first_sale", "refund", "promotion"}
+
+func RandomTransactionCategory() string {
+	index := rand.Intn(len(TransactionCategories))
+	return TransactionCategories[index]
+}
+
 type Transaction struct {
-	ID     int64 `bson:"_id,omitempty"`
-	Amount int   `bson:"amount,omitempty"`
+	ID        int64     `bson:"_id,omitempty"`
+	Amount    int       `bson:"amount,omitempty"`
+	Category  string    `bson:"category,omitempty"`
+	CreatedAt time.Time `json:"createdAt"`
 }
 
 type Bencher struct {
-	ctx                 context.Context
-	config              *config.Config
-	workerId            int
-	returnChannel       chan FuncResult
-	workerMap           map[int]*InsertWorker
-	numInsertWorkers    int
-	numIDReadWorkers    int
-	statTickSpeedMillis int
-	database            string
-	collection          string
+	ctx                  context.Context
+	config               *config.Config
+	workerId             int
+	returnChannel        chan FuncResult
+	workerMap            map[int]*InsertWorker
+	numInsertWorkers     int
+	numIDReadWorkers     int
+	numAggregationWorker int
+	statTickSpeedMillis  int
+	database             string
+	collection           string
 }
 
 type FuncResult struct {
@@ -38,15 +50,16 @@ type FuncResult struct {
 func NewBencher(ctx context.Context, config *config.Config) *Bencher {
 	inputChannel := make(chan FuncResult)
 	bencher := &Bencher{
-		ctx:                 ctx,
-		config:              config,
-		returnChannel:       inputChannel,
-		workerMap:           map[int]*InsertWorker{},
-		numInsertWorkers:    2,
-		numIDReadWorkers:    2,
-		statTickSpeedMillis: 100,
-		database:            "mongo_bench",
-		collection:          "transactions",
+		ctx:                  ctx,
+		config:               config,
+		returnChannel:        inputChannel,
+		workerMap:            map[int]*InsertWorker{},
+		numInsertWorkers:     2,
+		numIDReadWorkers:     2,
+		numAggregationWorker: 1,
+		statTickSpeedMillis:  100,
+		database:             "mongo_bench",
+		collection:           "transactions",
 	}
 	return bencher
 }
@@ -115,6 +128,7 @@ func (bencher *Bencher) StatThread() {
 				}
 				td = append(td, tableRow(statMap["insert"], bencher.numInsertWorkers, "Insert"))
 				td = append(td, tableRow(statMap["id_read"], bencher.numIDReadWorkers, "ID Reads"))
+				td = append(td, tableRow(statMap["aggregation"], bencher.numAggregationWorker, "Aggregations"))
 				boxedTable, _ := pterm.DefaultTable.WithHasHeader().WithData(td).WithBoxed().Srender()
 				area.Update(boxedTable)
 			}
@@ -123,11 +137,21 @@ func (bencher *Bencher) StatThread() {
 }
 
 func (bencher *Bencher) Start() {
-	err := bencher.Collection().Database().Drop(bencher.ctx)
+	collection := bencher.Collection()
+	err := collection.Database().Drop(bencher.ctx)
 	if err != nil {
 		fmt.Println("Error dropping DB: ", err)
 	} else {
 		fmt.Println("Dropped database")
+	}
+	index := mongo.IndexModel{
+		Keys: bson.D{{Key: "createdat", Value: -1}, {Key: "category", Value: 1}},
+	}
+	_, err = collection.Indexes().CreateOne(bencher.ctx, index)
+	if err != nil {
+		log.Fatal("Error creating index: ", err)
+	} else {
+		fmt.Println("Created indexes")
 	}
 
 	for i := 0; i < bencher.numInsertWorkers; i++ {
@@ -137,6 +161,9 @@ func (bencher *Bencher) Start() {
 
 	for i := 0; i < bencher.numIDReadWorkers; i++ {
 		StartIDReadWorker(bencher)
+	}
+	for i := 0; i < bencher.numAggregationWorker; i++ {
+		StartAggregationWorker(bencher)
 	}
 	go bencher.StatThread()
 

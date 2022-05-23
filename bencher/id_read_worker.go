@@ -47,7 +47,9 @@ func (worker *IDReadWorker) ReadThread() {
 			} else {
 				docId := rand.Intn(worker.bencher.workerMap[workerId].lastId) + 1 + (workerId * 100_000_000_000)
 				doc := collection.FindOne(worker.bencher.ctx, bson.M{"_id": docId})
-				if doc.Err() != nil {
+				tran := &Transaction{}
+				err := doc.Decode(tran)
+				if err != nil {
 					log.Fatal("Bad find...", doc.Err())
 				}
 				totalTimeMicros += int(time.Since(start).Microseconds())

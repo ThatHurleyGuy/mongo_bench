@@ -53,8 +53,10 @@ func (insertWorker *InsertWorker) InsertThread() {
 		default:
 			start := time.Now()
 			txn := Transaction{
-				ID:     int64(insertWorker.lastId + 1 + workerIdOffset),
-				Amount: rand.Intn(10000),
+				ID:        int64(insertWorker.lastId + 1 + workerIdOffset),
+				Amount:    rand.Intn(10000),
+				Category:  RandomTransactionCategory(),
+				CreatedAt: time.Now(),
 			}
 			_, insertErr := collection.InsertOne(insertWorker.bencher.ctx, txn)
 			if insertErr != nil {
