@@ -36,6 +36,7 @@ type Bencher struct {
 	numInsertWorkers      int
 	numIDReadWorkers      int
 	numAggregationWorkers int
+	numUpdateWorkers      int
 	statTickSpeedMillis   int
 	database              string
 	collection            string
@@ -57,6 +58,7 @@ func NewBencher(ctx context.Context, config *config.Config) *Bencher {
 		numInsertWorkers:      2,
 		numIDReadWorkers:      2,
 		numAggregationWorkers: 1,
+		numUpdateWorkers:      1,
 		statTickSpeedMillis:   100,
 		database:              "mongo_bench",
 		collection:            "transactions",
@@ -93,6 +95,8 @@ func (bencher *Bencher) StatWorker() {
 	statMap := map[string][]int{}
 	statMap["insert"] = []int{0, 0, 0}
 	statMap["id_read"] = []int{0, 0, 0}
+	statMap["aggregation"] = []int{0, 0, 0}
+	statMap["update"] = []int{0, 0, 0}
 	for {
 		select {
 		case result := <-bencher.returnChannel:
@@ -129,6 +133,7 @@ func (bencher *Bencher) StatWorker() {
 				td = append(td, tableRow(statMap["insert"], bencher.numInsertWorkers, "Insert"))
 				td = append(td, tableRow(statMap["id_read"], bencher.numIDReadWorkers, "ID Reads"))
 				td = append(td, tableRow(statMap["aggregation"], bencher.numAggregationWorkers, "Aggregations"))
+				td = append(td, tableRow(statMap["update"], bencher.numUpdateWorkers, "Updates"))
 				boxedTable, _ := pterm.DefaultTable.WithHasHeader().WithData(td).WithBoxed().Srender()
 				area.Update(boxedTable)
 			}
@@ -161,6 +166,9 @@ func (bencher *Bencher) Start() {
 
 	for i := 0; i < bencher.numIDReadWorkers; i++ {
 		StartIDReadWorker(bencher)
+	}
+	for i := 0; i < bencher.numUpdateWorkers; i++ {
+		StartUpdateWorker(bencher)
 	}
 	for i := 0; i < bencher.numAggregationWorkers; i++ {
 		StartAggregationWorker(bencher)
