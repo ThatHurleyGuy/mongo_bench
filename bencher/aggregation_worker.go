@@ -4,17 +4,8 @@ import (
 	"log"
 	"time"
 
-	"github.com/joho/godotenv"
 	"go.mongodb.org/mongo-driver/bson"
 )
-
-func init() {
-	err := godotenv.Load(".env")
-
-	if err != nil {
-		log.Fatal("Error loading .env file")
-	}
-}
 
 type AggregationWorker struct {
 	bencher *Bencher

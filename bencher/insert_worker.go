@@ -4,17 +4,7 @@ import (
 	"log"
 	"math/rand"
 	"time"
-
-	"github.com/joho/godotenv"
 )
-
-func init() {
-	err := godotenv.Load(".env")
-
-	if err != nil {
-		log.Fatal("Error loading .env file")
-	}
-}
 
 type InsertWorker struct {
 	bencher  *Bencher
