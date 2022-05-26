@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"github.com/pterm/pterm"
-	"github.com/thathurleyguy/gladio/cmd/config"
+	"github.com/thathurleyguy/mongo_bench/cmd/config"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
 )

@@ -6,8 +6,8 @@ import (
 	"log"
 
 	"github.com/joho/godotenv"
-	"github.com/thathurleyguy/gladio/bencher"
-	"github.com/thathurleyguy/gladio/cmd/config"
+	"github.com/thathurleyguy/mongo_bench/bencher"
+	"github.com/thathurleyguy/mongo_bench/cmd/config"
 )
 
 func init() {

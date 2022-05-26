@@ -1,4 +1,4 @@
-module github.com/thathurleyguy/gladio
+module github.com/thathurleyguy/mongo_bench
 
 go 1.17
 
