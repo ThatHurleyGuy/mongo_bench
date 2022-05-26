@@ -3,10 +3,12 @@ package bencher
 import (
 	"log"
 	"math/rand"
+	"sync"
 	"time"
 
 	"github.com/pterm/pterm"
 	"go.mongodb.org/mongo-driver/bson"
+	"go.mongodb.org/mongo-driver/mongo"
 )
 
 type UpdateWorker struct {
@@ -21,11 +23,21 @@ func StartUpdateWorker(bencher *Bencher) *UpdateWorker {
 	return updateWorker
 }
 
+func (updateWorker *UpdateWorker) updateDocument(collection *mongo.Collection, filter bson.M, update bson.M, wg *sync.WaitGroup) {
+	defer wg.Done()
+	_, err := collection.UpdateOne(updateWorker.bencher.ctx, filter, update)
+	if err != nil {
+		log.Fatal("Bad update...", err)
+	}
+}
+
 func (updateWorker *UpdateWorker) Start() {
 	ticker := time.NewTicker(time.Duration(updateWorker.bencher.config.StatTickSpeedMillis) * time.Millisecond)
 	numOps := 0
 	totalTimeMicros := 0
-	collection := updateWorker.bencher.Collection()
+	primaryCollection := updateWorker.bencher.PrimaryCollection()
+	secondaryCollection := updateWorker.bencher.SecondaryCollection()
+	var wg sync.WaitGroup
 
 	for {
 		select {
@@ -45,11 +57,14 @@ func (updateWorker *UpdateWorker) Start() {
 				pterm.Printfln("Waiting for insert worker to start before updating....")
 				time.Sleep(1 * time.Second)
 			} else {
+				newAmount := rand.Intn(10000)
 				docId := rand.Intn(updateWorker.bencher.workerMap[workerId].lastId) + 1 + (workerId * 100_000_000_000)
-				_, err := collection.UpdateOne(updateWorker.bencher.ctx, bson.M{"_id": docId}, bson.M{"$set": bson.M{"amount": rand.Intn(10000)}})
-				if err != nil {
-					log.Fatal("Bad find...", err)
-				}
+				filter := bson.M{"_id": docId}
+				update := bson.M{"$set": bson.M{"amount": newAmount}}
+				wg.Add(2)
+				go updateWorker.updateDocument(primaryCollection, filter, update, &wg)
+				go updateWorker.updateDocument(secondaryCollection, filter, update, &wg)
+				wg.Wait()
 			}
 			totalTimeMicros += int(time.Since(start).Microseconds())
 			numOps++

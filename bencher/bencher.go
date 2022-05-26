@@ -51,8 +51,12 @@ func NewBencher(ctx context.Context, config *config.Config) *Bencher {
 	return bencher
 }
 
-func (bencher *Bencher) Collection() *mongo.Collection {
-	return bencher.config.MongoClient.Database(bencher.config.Database).Collection(bencher.config.Collection)
+func (bencher *Bencher) PrimaryCollection() *mongo.Collection {
+	return bencher.config.PrimaryMongoClient.Database(bencher.config.Database).Collection(bencher.config.Collection)
+}
+
+func (bencher *Bencher) SecondaryCollection() *mongo.Collection {
+	return bencher.config.SecondaryMongoClient.Database(bencher.config.Database).Collection(bencher.config.Collection)
 }
 
 func tableRow(stats []int, numWorkers int, statType string) []string {
@@ -92,6 +96,8 @@ func (bencher *Bencher) StatWorker() {
 				statMap = map[string][]int{}
 				statMap["insert"] = []int{0, 0, 0}
 				statMap["id_read"] = []int{0, 0, 0}
+				statMap["aggregation"] = []int{0, 0, 0}
+				statMap["update"] = []int{0, 0, 0}
 				area.Stop()
 				fmt.Println()
 				area, err = pterm.DefaultArea.Start()
@@ -127,21 +133,34 @@ func (bencher *Bencher) StatWorker() {
 }
 
 func (bencher *Bencher) Start() {
-	collection := bencher.Collection()
+	collection := bencher.PrimaryCollection()
 	err := collection.Database().Drop(bencher.ctx)
 	if err != nil {
-		fmt.Println("Error dropping DB: ", err)
+		fmt.Println("Error dropping primary DB: ", err)
 	} else {
-		fmt.Println("Dropped database")
+		fmt.Println("Dropped primary database")
 	}
 	index := mongo.IndexModel{
 		Keys: bson.D{{Key: "createdat", Value: -1}, {Key: "category", Value: 1}},
 	}
 	_, err = collection.Indexes().CreateOne(bencher.ctx, index)
 	if err != nil {
-		log.Fatal("Error creating index: ", err)
+		log.Fatal("Error creating index on secondary: ", err)
 	} else {
-		fmt.Println("Created indexes")
+		fmt.Println("Created indexes on secondary")
+	}
+	collection = bencher.SecondaryCollection()
+	err = collection.Database().Drop(bencher.ctx)
+	if err != nil {
+		fmt.Println("Error secondary primary DB: ", err)
+	} else {
+		fmt.Println("Dropped secondary database")
+	}
+	_, err = collection.Indexes().CreateOne(bencher.ctx, index)
+	if err != nil {
+		log.Fatal("Error creating index on secondary: ", err)
+	} else {
+		fmt.Println("Created indexes on secondary")
 	}
 
 	for i := 0; i < bencher.config.NumInsertWorkers; i++ {

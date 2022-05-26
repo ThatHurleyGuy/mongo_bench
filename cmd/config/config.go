@@ -12,7 +12,8 @@ import (
 
 type Config struct {
 	ctx                   *context.Context
-	MongoClient           *mongo.Client
+	PrimaryMongoClient    *mongo.Client
+	SecondaryMongoClient  *mongo.Client
 	NumInsertWorkers      int
 	NumIDReadWorkers      int
 	NumAggregationWorkers int
@@ -23,16 +24,25 @@ type Config struct {
 }
 
 func Init(ctx context.Context) *Config {
-	client, err := mongo.NewClient(options.Client().ApplyURI(os.Getenv("MONGO_URL")))
+	primaryClient, err := mongo.NewClient(options.Client().ApplyURI(os.Getenv("PRIMARY_MONGO_URL")))
 	if err != nil {
 		log.Fatal(err)
 	}
-	err = client.Connect(ctx)
+	err = primaryClient.Connect(ctx)
+	if err != nil {
+		log.Fatal(err)
+	}
+	secondaryClient, err := mongo.NewClient(options.Client().ApplyURI(os.Getenv("SECONDARY_MONGO_URL")))
+	if err != nil {
+		log.Fatal(err)
+	}
+	err = secondaryClient.Connect(ctx)
 	if err != nil {
 		log.Fatal(err)
 	}
 	config := Config{
-		MongoClient:           client,
+		PrimaryMongoClient:    primaryClient,
+		SecondaryMongoClient:  secondaryClient,
 		NumInsertWorkers:      getEnvInt("NUM_INSERT_WORKERS", 2),
 		NumIDReadWorkers:      getEnvInt("NUM_ID_READ_WORKERS", 2),
 		NumAggregationWorkers: getEnvInt("NUM_AGGREGATION_WORKERS", 1),
@@ -45,7 +55,7 @@ func Init(ctx context.Context) *Config {
 }
 
 func (config *Config) Close() {
-	config.MongoClient.Disconnect(*config.ctx)
+	config.PrimaryMongoClient.Disconnect(*config.ctx)
 }
 
 func getEnv(name string, defaultValue string) string {

@@ -25,7 +25,7 @@ func (worker *IDReadWorker) Start() {
 	ticker := time.NewTicker(time.Duration(worker.bencher.config.StatTickSpeedMillis) * time.Millisecond)
 	numOps := 0
 	totalTimeMicros := 0
-	collection := worker.bencher.Collection()
+	collection := worker.bencher.PrimaryCollection()
 
 	for {
 		select {
