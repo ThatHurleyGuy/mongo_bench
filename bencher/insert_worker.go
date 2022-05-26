@@ -22,7 +22,7 @@ func StartInsertWorker(bencher *Bencher, workerId int) *InsertWorker {
 }
 
 func (insertWorker *InsertWorker) Start() {
-	ticker := time.NewTicker(time.Duration(insertWorker.bencher.statTickSpeedMillis) * time.Millisecond)
+	ticker := time.NewTicker(time.Duration(insertWorker.bencher.config.StatTickSpeedMillis) * time.Millisecond)
 	numInserts := 0
 	totalTimeMicros := 0
 	collection := insertWorker.bencher.Collection()

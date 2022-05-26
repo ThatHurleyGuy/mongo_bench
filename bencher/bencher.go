@@ -28,18 +28,10 @@ type Transaction struct {
 }
 
 type Bencher struct {
-	ctx                   context.Context
-	config                *config.Config
-	workerId              int
-	returnChannel         chan FuncResult
-	workerMap             map[int]*InsertWorker
-	numInsertWorkers      int
-	numIDReadWorkers      int
-	numAggregationWorkers int
-	numUpdateWorkers      int
-	statTickSpeedMillis   int
-	database              string
-	collection            string
+	ctx           context.Context
+	config        *config.Config
+	returnChannel chan FuncResult
+	workerMap     map[int]*InsertWorker
 }
 
 type FuncResult struct {
@@ -51,23 +43,16 @@ type FuncResult struct {
 func NewBencher(ctx context.Context, config *config.Config) *Bencher {
 	inputChannel := make(chan FuncResult)
 	bencher := &Bencher{
-		ctx:                   ctx,
-		config:                config,
-		returnChannel:         inputChannel,
-		workerMap:             map[int]*InsertWorker{},
-		numInsertWorkers:      2,
-		numIDReadWorkers:      2,
-		numAggregationWorkers: 1,
-		numUpdateWorkers:      1,
-		statTickSpeedMillis:   100,
-		database:              "mongo_bench",
-		collection:            "transactions",
+		ctx:           ctx,
+		config:        config,
+		returnChannel: inputChannel,
+		workerMap:     map[int]*InsertWorker{},
 	}
 	return bencher
 }
 
 func (bencher *Bencher) Collection() *mongo.Collection {
-	return bencher.config.MongoClient.Database(bencher.database).Collection(bencher.collection)
+	return bencher.config.MongoClient.Database(bencher.config.Database).Collection(bencher.config.Collection)
 }
 
 func tableRow(stats []int, numWorkers int, statType string) []string {
@@ -130,10 +115,10 @@ func (bencher *Bencher) StatWorker() {
 				td := [][]string{
 					{"Operation", "Per Second", "Avg Speed (us)"},
 				}
-				td = append(td, tableRow(statMap["insert"], bencher.numInsertWorkers, "Insert"))
-				td = append(td, tableRow(statMap["id_read"], bencher.numIDReadWorkers, "ID Reads"))
-				td = append(td, tableRow(statMap["aggregation"], bencher.numAggregationWorkers, "Aggregations"))
-				td = append(td, tableRow(statMap["update"], bencher.numUpdateWorkers, "Updates"))
+				td = append(td, tableRow(statMap["insert"], bencher.config.NumInsertWorkers, "Insert"))
+				td = append(td, tableRow(statMap["id_read"], bencher.config.NumIDReadWorkers, "ID Reads"))
+				td = append(td, tableRow(statMap["aggregation"], bencher.config.NumAggregationWorkers, "Aggregations"))
+				td = append(td, tableRow(statMap["update"], bencher.config.NumUpdateWorkers, "Updates"))
 				boxedTable, _ := pterm.DefaultTable.WithHasHeader().WithData(td).WithBoxed().Srender()
 				area.Update(boxedTable)
 			}
@@ -159,18 +144,18 @@ func (bencher *Bencher) Start() {
 		fmt.Println("Created indexes")
 	}
 
-	for i := 0; i < bencher.numInsertWorkers; i++ {
+	for i := 0; i < bencher.config.NumInsertWorkers; i++ {
 		insertWorker := StartInsertWorker(bencher, i)
 		bencher.workerMap[i] = insertWorker
 	}
 
-	for i := 0; i < bencher.numIDReadWorkers; i++ {
+	for i := 0; i < bencher.config.NumIDReadWorkers; i++ {
 		StartIDReadWorker(bencher)
 	}
-	for i := 0; i < bencher.numUpdateWorkers; i++ {
+	for i := 0; i < bencher.config.NumUpdateWorkers; i++ {
 		StartUpdateWorker(bencher)
 	}
-	for i := 0; i < bencher.numAggregationWorkers; i++ {
+	for i := 0; i < bencher.config.NumAggregationWorkers; i++ {
 		StartAggregationWorker(bencher)
 	}
 	go bencher.StatWorker()

@@ -20,7 +20,7 @@ func StartAggregationWorker(bencher *Bencher) *AggregationWorker {
 }
 
 func (worker *AggregationWorker) Start() {
-	ticker := time.NewTicker(time.Duration(worker.bencher.statTickSpeedMillis) * time.Millisecond)
+	ticker := time.NewTicker(time.Duration(worker.bencher.config.StatTickSpeedMillis) * time.Millisecond)
 	numOps := 0
 	totalTimeMicros := 0
 	collection := worker.bencher.Collection()
@@ -43,11 +43,6 @@ func (worker *AggregationWorker) Start() {
 					"createdat": bson.M{"$gte": ago},
 				},
 			}
-			// matchStage := bson.D{
-			// 	{"$match", bson.D{
-			// 		{"createdat", bson.D{{"$gte", ago}}},
-			// 	}},
-			// }
 			groupStage := bson.M{
 				"$group": bson.M{
 					"_id": "$category",
