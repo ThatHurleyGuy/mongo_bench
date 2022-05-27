@@ -33,7 +33,7 @@ func (insertWorker *InsertWorker) insertIntoCollection(collection *mongo.Collect
 }
 
 func (insertWorker *InsertWorker) Start() {
-	ticker := time.NewTicker(time.Duration(insertWorker.bencher.config.StatTickSpeedMillis) * time.Millisecond)
+	ticker := time.NewTicker(time.Duration(*insertWorker.bencher.config.StatTickSpeedMillis) * time.Millisecond)
 	numInserts := 0
 	totalTimeMicros := 0
 	primaryCollection := insertWorker.bencher.PrimaryCollection()

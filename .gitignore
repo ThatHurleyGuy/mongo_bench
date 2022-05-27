@@ -2,4 +2,4 @@
 /bin/
 /data/
 /log/
-.env
+mongo_bench

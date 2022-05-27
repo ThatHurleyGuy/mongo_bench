@@ -32,7 +32,7 @@ func (updateWorker *UpdateWorker) updateDocument(collection *mongo.Collection, f
 }
 
 func (updateWorker *UpdateWorker) Start() {
-	ticker := time.NewTicker(time.Duration(updateWorker.bencher.config.StatTickSpeedMillis) * time.Millisecond)
+	ticker := time.NewTicker(time.Duration(*updateWorker.bencher.config.StatTickSpeedMillis) * time.Millisecond)
 	numOps := 0
 	totalTimeMicros := 0
 	primaryCollection := updateWorker.bencher.PrimaryCollection()
@@ -51,7 +51,7 @@ func (updateWorker *UpdateWorker) Start() {
 			totalTimeMicros = 0
 		default:
 			start := time.Now()
-			workerId := rand.Intn(updateWorker.bencher.config.NumInsertWorkers)
+			workerId := rand.Intn(*updateWorker.bencher.config.NumInsertWorkers)
 			insertWorker := updateWorker.bencher.workerMap[workerId]
 			if insertWorker.lastId == 0 {
 				pterm.Printfln("Waiting for insert worker to start before updating....")

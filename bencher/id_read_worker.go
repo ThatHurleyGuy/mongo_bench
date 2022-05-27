@@ -22,7 +22,7 @@ func StartIDReadWorker(bencher *Bencher) *IDReadWorker {
 }
 
 func (worker *IDReadWorker) Start() {
-	ticker := time.NewTicker(time.Duration(worker.bencher.config.StatTickSpeedMillis) * time.Millisecond)
+	ticker := time.NewTicker(time.Duration(*worker.bencher.config.StatTickSpeedMillis) * time.Millisecond)
 	numOps := 0
 	totalTimeMicros := 0
 	collection := worker.bencher.PrimaryCollection()
@@ -39,7 +39,7 @@ func (worker *IDReadWorker) Start() {
 			totalTimeMicros = 0
 		default:
 			start := time.Now()
-			workerId := rand.Intn(worker.bencher.config.NumInsertWorkers)
+			workerId := rand.Intn(*worker.bencher.config.NumInsertWorkers)
 			insertWorker := worker.bencher.workerMap[workerId]
 			if insertWorker.lastId == 0 {
 				pterm.Printfln("Waiting for insert worker to start before reading....")

@@ -8,9 +8,9 @@ import (
 	"time"
 
 	"github.com/pterm/pterm"
-	"github.com/thathurleyguy/mongo_bench/cmd/config"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
+	"go.mongodb.org/mongo-driver/mongo/options"
 )
 
 var TransactionCategories = []string{"first_sale", "refund", "promotion"}
@@ -27,11 +27,25 @@ type Transaction struct {
 	CreatedAt time.Time `json:"createdAt"`
 }
 
+type Config struct {
+	PrimaryURI            *string
+	SecondaryURI          *string
+	NumInsertWorkers      *int
+	NumIDReadWorkers      *int
+	NumAggregationWorkers *int
+	NumUpdateWorkers      *int
+	StatTickSpeedMillis   *int
+	Database              *string
+	Collection            *string
+}
+
 type Bencher struct {
-	ctx           context.Context
-	config        *config.Config
-	returnChannel chan FuncResult
-	workerMap     map[int]*InsertWorker
+	ctx                  context.Context
+	config               *Config
+	returnChannel        chan FuncResult
+	workerMap            map[int]*InsertWorker
+	PrimaryMongoClient   *mongo.Client
+	SecondaryMongoClient *mongo.Client
 }
 
 type FuncResult struct {
@@ -40,7 +54,7 @@ type FuncResult struct {
 	opType     string
 }
 
-func NewBencher(ctx context.Context, config *config.Config) *Bencher {
+func NewBencher(ctx context.Context, config *Config) *Bencher {
 	inputChannel := make(chan FuncResult)
 	bencher := &Bencher{
 		ctx:           ctx,
@@ -52,11 +66,11 @@ func NewBencher(ctx context.Context, config *config.Config) *Bencher {
 }
 
 func (bencher *Bencher) PrimaryCollection() *mongo.Collection {
-	return bencher.config.PrimaryMongoClient.Database(bencher.config.Database).Collection(bencher.config.Collection)
+	return bencher.PrimaryMongoClient.Database(*bencher.config.Database).Collection(*bencher.config.Collection)
 }
 
 func (bencher *Bencher) SecondaryCollection() *mongo.Collection {
-	return bencher.config.SecondaryMongoClient.Database(bencher.config.Database).Collection(bencher.config.Collection)
+	return bencher.SecondaryMongoClient.Database(*bencher.config.Database).Collection(*bencher.config.Collection)
 }
 
 func tableRow(stats []int, numWorkers int, statType string) []string {
@@ -121,10 +135,10 @@ func (bencher *Bencher) StatWorker() {
 				td := [][]string{
 					{"Operation", "Per Second", "Avg Speed (us)"},
 				}
-				td = append(td, tableRow(statMap["insert"], bencher.config.NumInsertWorkers, "Insert"))
-				td = append(td, tableRow(statMap["id_read"], bencher.config.NumIDReadWorkers, "ID Reads"))
-				td = append(td, tableRow(statMap["aggregation"], bencher.config.NumAggregationWorkers, "Aggregations"))
-				td = append(td, tableRow(statMap["update"], bencher.config.NumUpdateWorkers, "Updates"))
+				td = append(td, tableRow(statMap["insert"], *bencher.config.NumInsertWorkers, "Insert"))
+				td = append(td, tableRow(statMap["id_read"], *bencher.config.NumIDReadWorkers, "ID Reads"))
+				td = append(td, tableRow(statMap["aggregation"], *bencher.config.NumAggregationWorkers, "Aggregations"))
+				td = append(td, tableRow(statMap["update"], *bencher.config.NumUpdateWorkers, "Updates"))
 				boxedTable, _ := pterm.DefaultTable.WithHasHeader().WithData(td).WithBoxed().Srender()
 				area.Update(boxedTable)
 			}
@@ -132,49 +146,60 @@ func (bencher *Bencher) StatWorker() {
 	}
 }
 
-func (bencher *Bencher) Start() {
-	collection := bencher.PrimaryCollection()
-	err := collection.Database().Drop(bencher.ctx)
+func (bencher *Bencher) SetupDB(ctx context.Context, uri string) (*mongo.Client, error) {
+	client, err := mongo.NewClient(options.Client().ApplyURI(uri))
 	if err != nil {
-		fmt.Println("Error dropping primary DB: ", err)
-	} else {
-		fmt.Println("Dropped primary database")
+		log.Fatal(err)
+	}
+	err = client.Connect(bencher.ctx)
+	if err != nil {
+		log.Fatal(err)
+	}
+	err = client.Database(*bencher.config.Database).Drop(ctx)
+	if err != nil {
+		return nil, err
 	}
 	index := mongo.IndexModel{
 		Keys: bson.D{{Key: "createdat", Value: -1}, {Key: "category", Value: 1}},
 	}
-	_, err = collection.Indexes().CreateOne(bencher.ctx, index)
+	_, err = client.Database(*bencher.config.Database).Collection(*bencher.config.Collection).Indexes().CreateOne(ctx, index)
 	if err != nil {
-		log.Fatal("Error creating index on secondary: ", err)
-	} else {
-		fmt.Println("Created indexes on secondary")
+		return nil, err
 	}
-	collection = bencher.SecondaryCollection()
-	err = collection.Database().Drop(bencher.ctx)
+	return client, nil
+}
+
+func (bencher *Bencher) Close() {
+	bencher.PrimaryMongoClient.Disconnect(bencher.ctx)
+	bencher.SecondaryMongoClient.Disconnect(bencher.ctx)
+}
+
+func (bencher *Bencher) Start() {
+	defer bencher.Close()
+	var err error
+	log.Println("Setting up primary")
+	bencher.PrimaryMongoClient, err = bencher.SetupDB(bencher.ctx, *bencher.config.PrimaryURI)
 	if err != nil {
-		fmt.Println("Error secondary primary DB: ", err)
-	} else {
-		fmt.Println("Dropped secondary database")
+		log.Fatal("Error setting up primary: ", err)
 	}
-	_, err = collection.Indexes().CreateOne(bencher.ctx, index)
+	log.Println("Setting up secondary")
+	bencher.SecondaryMongoClient, err = bencher.SetupDB(bencher.ctx, *bencher.config.SecondaryURI)
 	if err != nil {
-		log.Fatal("Error creating index on secondary: ", err)
-	} else {
-		fmt.Println("Created indexes on secondary")
+		log.Fatal("Error reseting secondary: ", err)
 	}
 
-	for i := 0; i < bencher.config.NumInsertWorkers; i++ {
+	for i := 0; i < *bencher.config.NumInsertWorkers; i++ {
 		insertWorker := StartInsertWorker(bencher, i)
 		bencher.workerMap[i] = insertWorker
 	}
 
-	for i := 0; i < bencher.config.NumIDReadWorkers; i++ {
+	for i := 0; i < *bencher.config.NumIDReadWorkers; i++ {
 		StartIDReadWorker(bencher)
 	}
-	for i := 0; i < bencher.config.NumUpdateWorkers; i++ {
+	for i := 0; i < *bencher.config.NumUpdateWorkers; i++ {
 		StartUpdateWorker(bencher)
 	}
-	for i := 0; i < bencher.config.NumAggregationWorkers; i++ {
+	for i := 0; i < *bencher.config.NumAggregationWorkers; i++ {
 		StartAggregationWorker(bencher)
 	}
 	go bencher.StatWorker()
