@@ -61,9 +61,12 @@ func (insertWorker *InsertWorker) Start() {
 				Category:  RandomTransactionCategory(),
 				CreatedAt: time.Now(),
 			}
-			wg.Add(2)
+			wg.Add(1)
 			go insertWorker.insertIntoCollection(primaryCollection, &txn, &wg)
-			go insertWorker.insertIntoCollection(secondaryCollection, &txn, &wg)
+			if secondaryCollection != nil {
+				wg.Add(1)
+				go insertWorker.insertIntoCollection(secondaryCollection, &txn, &wg)
+			}
 			wg.Wait()
 
 			insertWorker.lastId++

@@ -48,6 +48,5 @@ func init() {
 	config.Collection = rootCmd.Flags().StringP("collection", "c", "transactions", "Collection name to store documents in")
 	config.PrimaryURI = rootCmd.Flags().StringP("primary", "p", "", "Primary cluster to connect to")
 	rootCmd.MarkFlagRequired("primary")
-	config.SecondaryURI = rootCmd.Flags().StringP("secondary", "s", "", "Secondary cluster to connect to")
-	rootCmd.MarkFlagRequired("secondary")
+	config.SecondaryURI = rootCmd.Flags().StringP("secondary", "s", "", "Secondary cluster to connect to. Used to test dual reads in mongobetween")
 }

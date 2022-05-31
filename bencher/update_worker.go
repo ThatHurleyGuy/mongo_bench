@@ -61,9 +61,12 @@ func (updateWorker *UpdateWorker) Start() {
 				docId := rand.Intn(updateWorker.bencher.workerMap[workerId].lastId) + 1 + (workerId * 100_000_000_000)
 				filter := bson.M{"_id": docId}
 				update := bson.M{"$set": bson.M{"amount": newAmount}}
-				wg.Add(2)
+				wg.Add(1)
 				go updateWorker.updateDocument(primaryCollection, filter, update, &wg)
-				go updateWorker.updateDocument(secondaryCollection, filter, update, &wg)
+				if secondaryCollection != nil {
+					wg.Add(1)
+					go updateWorker.updateDocument(secondaryCollection, filter, update, &wg)
+				}
 				wg.Wait()
 			}
 			totalTimeMicros += int(time.Since(start).Microseconds())

@@ -70,6 +70,9 @@ func (bencher *Bencher) PrimaryCollection() *mongo.Collection {
 }
 
 func (bencher *Bencher) SecondaryCollection() *mongo.Collection {
+	if bencher.SecondaryMongoClient == nil {
+		return nil
+	}
 	return bencher.SecondaryMongoClient.Database(*bencher.config.Database).Collection(*bencher.config.Collection)
 }
 
@@ -171,7 +174,9 @@ func (bencher *Bencher) SetupDB(ctx context.Context, uri string) (*mongo.Client,
 
 func (bencher *Bencher) Close() {
 	bencher.PrimaryMongoClient.Disconnect(bencher.ctx)
-	bencher.SecondaryMongoClient.Disconnect(bencher.ctx)
+	if bencher.SecondaryMongoClient != nil {
+		bencher.SecondaryMongoClient.Disconnect(bencher.ctx)
+	}
 }
 
 func (bencher *Bencher) Start() {
@@ -182,10 +187,12 @@ func (bencher *Bencher) Start() {
 	if err != nil {
 		log.Fatal("Error setting up primary: ", err)
 	}
-	log.Println("Setting up secondary")
-	bencher.SecondaryMongoClient, err = bencher.SetupDB(bencher.ctx, *bencher.config.SecondaryURI)
-	if err != nil {
-		log.Fatal("Error reseting secondary: ", err)
+	if *bencher.config.SecondaryURI != "" {
+		log.Println("Setting up secondary")
+		bencher.SecondaryMongoClient, err = bencher.SetupDB(bencher.ctx, *bencher.config.SecondaryURI)
+		if err != nil {
+			log.Fatal("Error reseting secondary: ", err)
+		}
 	}
 
 	for i := 0; i < *bencher.config.NumInsertWorkers; i++ {
