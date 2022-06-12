@@ -39,13 +39,12 @@ func (worker *IDReadWorker) Start() {
 			totalTimeMicros = 0
 		default:
 			start := time.Now()
-			workerId := rand.Intn(*worker.bencher.config.NumInsertWorkers)
-			insertWorker := worker.bencher.workerMap[workerId]
-			if insertWorker.lastId == 0 {
+			insertWorker := worker.bencher.RandomInsertWorker()
+			if insertWorker.LastId == 0 {
 				pterm.Printfln("Waiting for insert worker to start before reading....")
 				time.Sleep(1 * time.Second)
 			} else {
-				docId := rand.Intn(worker.bencher.workerMap[workerId].lastId) + 1 + (workerId * 100_000_000_000)
+				docId := rand.Intn(insertWorker.LastId) + 1 + (insertWorker.WorkerIndex * 100_000_000_000)
 				doc := collection.FindOne(worker.bencher.ctx, bson.M{"_id": docId})
 				tran := &Transaction{}
 				err := doc.Decode(tran)

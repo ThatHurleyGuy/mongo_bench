@@ -13,7 +13,11 @@ import (
 	"go.mongodb.org/mongo-driver/mongo/options"
 )
 
-var TransactionCategories = []string{"first_sale", "refund", "promotion"}
+var (
+	TransactionCategories      = []string{"first_sale", "refund", "promotion"}
+	MetadataDatabase           = "bench_metadata"
+	InsertWorkerCollectionName = "insert_workers"
+)
 
 func RandomTransactionCategory() string {
 	index := rand.Intn(len(TransactionCategories))
@@ -30,6 +34,7 @@ type Transaction struct {
 type Config struct {
 	PrimaryURI            *string
 	SecondaryURI          *string
+	MetadataURI           *string
 	NumInsertWorkers      *int
 	NumIDReadWorkers      *int
 	NumAggregationWorkers *int
@@ -43,9 +48,10 @@ type Bencher struct {
 	ctx                  context.Context
 	config               *Config
 	returnChannel        chan FuncResult
-	workerMap            map[int]*InsertWorker
+	insertWorkerMap      map[int]*InsertWorker
 	PrimaryMongoClient   *mongo.Client
 	SecondaryMongoClient *mongo.Client
+	MetadataMongoClient  *mongo.Client
 }
 
 type FuncResult struct {
@@ -57,10 +63,10 @@ type FuncResult struct {
 func NewBencher(ctx context.Context, config *Config) *Bencher {
 	inputChannel := make(chan FuncResult)
 	bencher := &Bencher{
-		ctx:           ctx,
-		config:        config,
-		returnChannel: inputChannel,
-		workerMap:     map[int]*InsertWorker{},
+		ctx:             ctx,
+		config:          config,
+		returnChannel:   inputChannel,
+		insertWorkerMap: map[int]*InsertWorker{},
 	}
 	return bencher
 }
@@ -74,6 +80,20 @@ func (bencher *Bencher) SecondaryCollection() *mongo.Collection {
 		return nil
 	}
 	return bencher.SecondaryMongoClient.Database(*bencher.config.Database).Collection(*bencher.config.Collection)
+}
+
+func (bencher *Bencher) InsertWorkerCollection() *mongo.Collection {
+	return bencher.MetadataMongoClient.Database(MetadataDatabase).Collection(InsertWorkerCollectionName)
+}
+
+func (bencher *Bencher) RandomInsertWorker() *InsertWorker {
+	// TODO: speed this up?
+	values := make([]*InsertWorker, 0, len(bencher.insertWorkerMap))
+	for _, v := range bencher.insertWorkerMap {
+		values = append(values, v)
+	}
+	index := rand.Intn(len(values))
+	return values[index]
 }
 
 func tableRow(stats []int, numWorkers int, statType string) []string {
@@ -158,6 +178,7 @@ func (bencher *Bencher) SetupDB(ctx context.Context, uri string) (*mongo.Client,
 	if err != nil {
 		log.Fatal(err)
 	}
+	// TODO: Only drop if "primary"
 	err = client.Database(*bencher.config.Database).Drop(ctx)
 	if err != nil {
 		return nil, err
@@ -166,6 +187,31 @@ func (bencher *Bencher) SetupDB(ctx context.Context, uri string) (*mongo.Client,
 		Keys: bson.D{{Key: "createdat", Value: -1}, {Key: "category", Value: 1}},
 	}
 	_, err = client.Database(*bencher.config.Database).Collection(*bencher.config.Collection).Indexes().CreateOne(ctx, index)
+	if err != nil {
+		return nil, err
+	}
+	return client, nil
+}
+
+func (bencher *Bencher) SetupMetadataDB(ctx context.Context, uri string) (*mongo.Client, error) {
+	client, err := mongo.NewClient(options.Client().ApplyURI(uri))
+	if err != nil {
+		log.Fatal(err)
+	}
+	err = client.Connect(bencher.ctx)
+	if err != nil {
+		log.Fatal(err)
+	}
+	// TODO: Only if "primary"
+	err = client.Database(MetadataDatabase).Drop(ctx)
+	if err != nil {
+		return nil, err
+	}
+	index := mongo.IndexModel{
+		Keys:    bson.D{{Key: "workerIndex", Value: 1}},
+		Options: options.Index().SetUnique(true),
+	}
+	_, err = client.Database(MetadataDatabase).Collection(InsertWorkerCollectionName).Indexes().CreateOne(ctx, index)
 	if err != nil {
 		return nil, err
 	}
@@ -194,10 +240,15 @@ func (bencher *Bencher) Start() {
 			log.Fatal("Error reseting secondary: ", err)
 		}
 	}
+	log.Println("Setting up metadata db")
+	bencher.MetadataMongoClient, err = bencher.SetupMetadataDB(bencher.ctx, *bencher.config.MetadataURI)
+	if err != nil {
+		log.Fatal("Error setting up metadata mongo connection: ", err)
+	}
 
 	for i := 0; i < *bencher.config.NumInsertWorkers; i++ {
-		insertWorker := StartInsertWorker(bencher, i)
-		bencher.workerMap[i] = insertWorker
+		insertWorker := StartInsertWorker(bencher)
+		bencher.insertWorkerMap[insertWorker.WorkerIndex] = insertWorker
 	}
 
 	for i := 0; i < *bencher.config.NumIDReadWorkers; i++ {

@@ -25,6 +25,10 @@ var (
 			defer cancel()
 
 			bencher := bencher.NewBencher(ctx, &config)
+			if *config.MetadataURI == "" {
+				config.MetadataURI = config.PrimaryURI
+			}
+
 			bencher.Start()
 		},
 	}
@@ -49,4 +53,5 @@ func init() {
 	config.PrimaryURI = rootCmd.Flags().StringP("primary", "p", "", "Primary cluster to connect to")
 	rootCmd.MarkFlagRequired("primary")
 	config.SecondaryURI = rootCmd.Flags().StringP("secondary", "s", "", "Secondary cluster to connect to. Used to test dual reads in mongobetween")
+	config.MetadataURI = rootCmd.Flags().StringP("metadata", "m", "", "Metadata cluster to store benchmark state, defaults to primary cluster")
 }

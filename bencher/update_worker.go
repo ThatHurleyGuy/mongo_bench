@@ -51,14 +51,13 @@ func (updateWorker *UpdateWorker) Start() {
 			totalTimeMicros = 0
 		default:
 			start := time.Now()
-			workerId := rand.Intn(*updateWorker.bencher.config.NumInsertWorkers)
-			insertWorker := updateWorker.bencher.workerMap[workerId]
-			if insertWorker.lastId == 0 {
+			insertWorker := updateWorker.bencher.RandomInsertWorker()
+			if insertWorker.LastId == 0 {
 				pterm.Printfln("Waiting for insert worker to start before updating....")
 				time.Sleep(1 * time.Second)
 			} else {
 				newAmount := rand.Intn(10000)
-				docId := rand.Intn(updateWorker.bencher.workerMap[workerId].lastId) + 1 + (workerId * 100_000_000_000)
+				docId := insertWorker.LastId + 1 + (insertWorker.WorkerIndex * 100_000_000_000)
 				filter := bson.M{"_id": docId}
 				update := bson.M{"$set": bson.M{"amount": newAmount}}
 				wg.Add(1)
