@@ -17,6 +17,8 @@ var (
 	TransactionCategories      = []string{"first_sale", "refund", "promotion"}
 	MetadataDatabase           = "bench_metadata"
 	InsertWorkerCollectionName = "insert_workers"
+	BenchDatabase              = "mongo_bench"
+	BenchCollection            = "transactions"
 )
 
 func RandomTransactionCategory() string {
@@ -40,8 +42,6 @@ type Config struct {
 	NumAggregationWorkers *int
 	NumUpdateWorkers      *int
 	StatTickSpeedMillis   *int
-	Database              *string
-	Collection            *string
 }
 
 type Bencher struct {
@@ -72,14 +72,14 @@ func NewBencher(ctx context.Context, config *Config) *Bencher {
 }
 
 func (bencher *Bencher) PrimaryCollection() *mongo.Collection {
-	return bencher.PrimaryMongoClient.Database(*bencher.config.Database).Collection(*bencher.config.Collection)
+	return bencher.PrimaryMongoClient.Database(BenchDatabase).Collection(BenchCollection)
 }
 
 func (bencher *Bencher) SecondaryCollection() *mongo.Collection {
 	if bencher.SecondaryMongoClient == nil {
 		return nil
 	}
-	return bencher.SecondaryMongoClient.Database(*bencher.config.Database).Collection(*bencher.config.Collection)
+	return bencher.SecondaryMongoClient.Database(BenchDatabase).Collection(BenchCollection)
 }
 
 func (bencher *Bencher) InsertWorkerCollection() *mongo.Collection {
@@ -179,14 +179,14 @@ func (bencher *Bencher) SetupDB(ctx context.Context, uri string) (*mongo.Client,
 		log.Fatal(err)
 	}
 	// TODO: Only drop if "primary"
-	err = client.Database(*bencher.config.Database).Drop(ctx)
+	err = client.Database(BenchDatabase).Drop(ctx)
 	if err != nil {
 		return nil, err
 	}
 	index := mongo.IndexModel{
 		Keys: bson.D{{Key: "createdat", Value: -1}, {Key: "category", Value: 1}},
 	}
-	_, err = client.Database(*bencher.config.Database).Collection(*bencher.config.Collection).Indexes().CreateOne(ctx, index)
+	_, err = client.Database(BenchDatabase).Collection(BenchCollection).Indexes().CreateOne(ctx, index)
 	if err != nil {
 		return nil, err
 	}
