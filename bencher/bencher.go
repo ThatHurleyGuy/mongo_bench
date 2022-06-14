@@ -102,6 +102,7 @@ func (bencher *BencherInstance) SecondaryCollection() *mongo.Collection {
 func (bencher *BencherInstance) makeClient(uri string) *mongo.Client {
 	// Force majority write concerns to ensure secondary reads work more consistently
 	connectionString := options.Client().ApplyURI(uri).SetWriteConcern(writeconcern.New(writeconcern.WMajority()))
+	// connectionString := options.Client().ApplyURI(uri).SetWriteConcern(writeconcern.New(writeconcern.W(1)))
 	client, err := mongo.NewClient(connectionString)
 	if err != nil {
 		log.Fatal(err)
@@ -276,10 +277,6 @@ func (bencher *BencherInstance) SetupMetadataDB() error {
 	}
 
 	if bencher.IsPrimary {
-		err = bencher.MetadataMongoClient.Database(MetadataDatabase).Drop(bencher.ctx)
-		if err != nil {
-			return err
-		}
 		index := mongo.IndexModel{
 			Keys:    bson.D{{Key: "workerIndex", Value: 1}},
 			Options: options.Index().SetUnique(true),
@@ -301,6 +298,7 @@ func (bencher *BencherInstance) Close() {
 }
 
 func (bencher *BencherInstance) Reset() {
+	log.Println("Resetting dbs...")
 	bencher.makePrimaryClient()
 	bencher.makeSecondaryClient()
 	bencher.makeMetadataClient()
