@@ -28,7 +28,7 @@ func (worker *AggregationWorker) Start() {
 	for {
 		select {
 		case <-ticker.C:
-			worker.bencher.returnChannel <- FuncResult{
+			worker.bencher.returnChannel <- &FuncResult{
 				numOps:     numOps,
 				timeMicros: totalTimeMicros,
 				opType:     "aggregation",

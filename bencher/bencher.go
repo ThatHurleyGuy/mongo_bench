@@ -56,7 +56,7 @@ type BencherInstance struct {
 
 	ctx                  context.Context
 	config               *Config
-	returnChannel        chan FuncResult
+	returnChannel        chan *FuncResult
 	insertWorkers        []*InsertWorker
 	PrimaryMongoClient   *mongo.Client
 	SecondaryMongoClient *mongo.Client
@@ -67,11 +67,11 @@ type FuncResult struct {
 	numOps     int
 	timeMicros int
 	opType     string
-	errors     int
+	errors     []string
 }
 
 func NewBencher(ctx context.Context, config *Config) *BencherInstance {
-	inputChannel := make(chan FuncResult)
+	inputChannel := make(chan *FuncResult)
 	bencher := &BencherInstance{
 		ID:            primitive.NewObjectID(),
 		IsPrimary:     false, // Assume false until inserted into metadata DB
@@ -147,22 +147,31 @@ func (bencher *BencherInstance) RandomInsertWorker() *InsertWorker {
 	return bencher.insertWorkers[index]
 }
 
-func tableRow(stats []int, numWorkers int, statType string) []string {
+func tableRow(stats *FuncResult, numWorkers int, statType string) []string {
 	avgSpeed := 0
 	perSecond := 0
-	if stats[0] > 0 {
-		avgSpeed = stats[1] / stats[0]
+	if stats.numOps > 0 {
+		avgSpeed = stats.timeMicros / stats.numOps
 	}
-	if stats[1] > 0 {
-		perSecond = int(float64(numWorkers*stats[0]) / float64(float64(stats[1])/1_000_000))
+	if stats.timeMicros > 0 {
+		perSecond = int(float64(numWorkers*stats.numOps) / float64(float64(stats.timeMicros)/1_000_000))
 	}
-	return []string{statType, fmt.Sprint(perSecond), fmt.Sprint(avgSpeed), fmt.Sprint(stats[2])}
+	groupedErrors := map[string]int{}
+	for _, v := range stats.errors {
+		_, ok := groupedErrors[v]
+		if ok {
+			groupedErrors[v]++
+		} else {
+			groupedErrors[v] = 1
+		}
+	}
+	return []string{statType, fmt.Sprint(perSecond), fmt.Sprint(avgSpeed), fmt.Sprint(groupedErrors)}
 }
 
 func (bencher *BencherInstance) StatWorker() {
 	tickTime := 200
 	ticker := time.NewTicker(time.Duration(tickTime) * time.Millisecond)
-	stats := []FuncResult{}
+	stats := []*FuncResult{}
 	area, err := pterm.DefaultArea.Start()
 	if err != nil {
 		log.Fatal("Error setting up output area: ", err)
@@ -170,12 +179,12 @@ func (bencher *BencherInstance) StatWorker() {
 
 	lastStatBlock := time.Now()
 	// TODO: clean this up
-	statMap := map[string][]int{}
-	statMap["insert"] = []int{0, 0, 0, 0}
-	statMap["id_read"] = []int{0, 0, 0, 0}
-	statMap["secondary_node_id_read"] = []int{0, 0, 0, 0}
-	statMap["aggregation"] = []int{0, 0, 0, 0}
-	statMap["update"] = []int{0, 0, 0, 0}
+	statMap := map[string]*FuncResult{}
+	statMap["insert"] = &FuncResult{}
+	statMap["id_read"] = &FuncResult{}
+	statMap["secondary_node_id_read"] = &FuncResult{}
+	statMap["aggregation"] = &FuncResult{}
+	statMap["update"] = &FuncResult{}
 	for {
 		select {
 		case result := <-bencher.returnChannel:
@@ -183,12 +192,12 @@ func (bencher *BencherInstance) StatWorker() {
 		case <-ticker.C:
 			if time.Since(lastStatBlock).Seconds() > 10 {
 				lastStatBlock = time.Now()
-				statMap = map[string][]int{}
-				statMap["insert"] = []int{0, 0, 0, 0}
-				statMap["id_read"] = []int{0, 0, 0, 0}
-				statMap["secondary_node_id_read"] = []int{0, 0, 0, 0}
-				statMap["aggregation"] = []int{0, 0, 0, 0}
-				statMap["update"] = []int{0, 0, 0, 0}
+				statMap = map[string]*FuncResult{}
+				statMap["insert"] = &FuncResult{}
+				statMap["id_read"] = &FuncResult{}
+				statMap["secondary_node_id_read"] = &FuncResult{}
+				statMap["aggregation"] = &FuncResult{}
+				statMap["update"] = &FuncResult{}
 				area.Stop()
 				fmt.Println()
 				area, err = pterm.DefaultArea.Start()
@@ -201,15 +210,16 @@ func (bencher *BencherInstance) StatWorker() {
 				for _, v := range stats {
 					_, ok := statMap[v.opType]
 					if ok {
-						statMap[v.opType][0] += v.numOps
-						statMap[v.opType][1] += v.timeMicros
-						statMap[v.opType][2] += v.errors
-						statMap[v.opType][3]++
+						stat := statMap[v.opType]
+						stat.numOps += v.numOps
+						stat.timeMicros += v.timeMicros
+						stat.errors = append(stat.errors, v.errors...)
+						// statMap[v.opType][2] += v.errors
 					} else {
-						statMap[v.opType] = []int{v.numOps, v.timeMicros, v.errors, 1}
+						statMap[v.opType] = v
 					}
 				}
-				stats = []FuncResult{}
+				stats = []*FuncResult{}
 				td := [][]string{
 					{"Operation", "Per Second", "Avg Speed (us)", "Errors"},
 				}

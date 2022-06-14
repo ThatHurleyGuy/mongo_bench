@@ -42,7 +42,7 @@ func (updateWorker *UpdateWorker) Start() {
 	for {
 		select {
 		case <-ticker.C:
-			updateWorker.bencher.returnChannel <- FuncResult{
+			updateWorker.bencher.returnChannel <- &FuncResult{
 				numOps:     numOps,
 				timeMicros: totalTimeMicros,
 				opType:     "update",

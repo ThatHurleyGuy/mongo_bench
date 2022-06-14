@@ -2,6 +2,7 @@ package bencher
 
 import (
 	"context"
+	"fmt"
 	"math/rand"
 	"time"
 
@@ -41,13 +42,13 @@ func (worker *IDReadWorker) Start() {
 	numOps := 0
 	totalTimeMicros := 0
 	collection := worker.bencher.PrimaryCollection()
-	errors := 0
+	errors := []string{}
 
 	// TODO: Extract this stat tracking pattern
 	for {
 		select {
 		case <-ticker.C:
-			worker.bencher.returnChannel <- FuncResult{
+			worker.bencher.returnChannel <- &FuncResult{
 				numOps:     numOps,
 				timeMicros: totalTimeMicros,
 				opType:     "id_read",
@@ -55,12 +56,12 @@ func (worker *IDReadWorker) Start() {
 			}
 			numOps = 0
 			totalTimeMicros = 0
-			errors = 0
+			errors = []string{}
 		default:
 			start := time.Now()
 			err := DoRead(worker.bencher.ctx, worker.bencher.RandomInsertWorker(), collection)
 			if err != nil {
-				errors++
+				errors = append(errors, fmt.Sprint(err.Error()))
 			} else {
 				numOps++
 			}

@@ -1,7 +1,7 @@
 package bencher
 
 import (
-	"log"
+	"fmt"
 	"time"
 )
 
@@ -22,12 +22,12 @@ func (worker *SecondaryNodeIDReadWorker) Start() {
 	numOps := 0
 	totalTimeMicros := 0
 	collection := worker.bencher.PrimaryCollectionSecondaryRead()
-	errors := 0
+	errors := []string{}
 
 	for {
 		select {
 		case <-ticker.C:
-			worker.bencher.returnChannel <- FuncResult{
+			worker.bencher.returnChannel <- &FuncResult{
 				numOps:     numOps,
 				timeMicros: totalTimeMicros,
 				opType:     "secondary_node_id_read",
@@ -35,12 +35,14 @@ func (worker *SecondaryNodeIDReadWorker) Start() {
 			}
 			numOps = 0
 			totalTimeMicros = 0
+			errors = []string{}
 		default:
 			start := time.Now()
 			err := DoRead(worker.bencher.ctx, worker.bencher.RandomInsertWorker(), collection)
 			if err != nil {
-				log.Printf("Error: %+v", err)
-				errors++
+				// TODO start grouping errors by type
+				// log.Printf("Secondary Read Error: %+v", err)
+				errors = append(errors, fmt.Sprint(err.Error()))
 			} else {
 				numOps++
 			}

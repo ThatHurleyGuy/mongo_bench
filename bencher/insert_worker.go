@@ -69,7 +69,7 @@ func (insertWorker *InsertWorker) Start() {
 	for {
 		select {
 		case <-ticker.C:
-			insertWorker.bencher.returnChannel <- FuncResult{
+			insertWorker.bencher.returnChannel <- &FuncResult{
 				numOps:     numInserts,
 				timeMicros: totalTimeMicros,
 				opType:     "insert",
