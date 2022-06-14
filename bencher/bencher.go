@@ -56,14 +56,14 @@ type BencherInstance struct {
 
 	ctx                  context.Context
 	config               *Config
-	returnChannel        chan *FuncResult
+	returnChannel        chan *StatResult
 	insertWorkers        []*InsertWorker
 	PrimaryMongoClient   *mongo.Client
 	SecondaryMongoClient *mongo.Client
 	MetadataMongoClient  *mongo.Client
 }
 
-type FuncResult struct {
+type StatResult struct {
 	numOps     int
 	timeMicros int
 	opType     string
@@ -71,7 +71,7 @@ type FuncResult struct {
 }
 
 func NewBencher(ctx context.Context, config *Config) *BencherInstance {
-	inputChannel := make(chan *FuncResult)
+	inputChannel := make(chan *StatResult)
 	bencher := &BencherInstance{
 		ID:            primitive.NewObjectID(),
 		IsPrimary:     false, // Assume false until inserted into metadata DB
@@ -148,7 +148,7 @@ func (bencher *BencherInstance) RandomInsertWorker() *InsertWorker {
 	return bencher.insertWorkers[index]
 }
 
-func tableRow(stats *FuncResult, numWorkers int, statType string) []string {
+func tableRow(stats *StatResult, numWorkers int, statType string) []string {
 	if stats == nil {
 		return []string{statType, fmt.Sprint(0), fmt.Sprint(0), fmt.Sprint(map[string]int{})}
 	}
@@ -173,10 +173,43 @@ func tableRow(stats *FuncResult, numWorkers int, statType string) []string {
 	return []string{statType, fmt.Sprint(perSecond), fmt.Sprint(avgSpeed), fmt.Sprint(groupedErrors)}
 }
 
+type MongoOp func() error
+
+func (bencher *BencherInstance) TrackOperations(opType string, fn MongoOp) {
+	ticker := time.NewTicker(time.Duration(*bencher.config.StatTickSpeedMillis) * time.Millisecond)
+	numOps := 0
+	totalTimeMicros := 0
+	errors := []string{}
+
+	for {
+		select {
+		case <-ticker.C:
+			bencher.returnChannel <- &StatResult{
+				numOps:     numOps,
+				timeMicros: totalTimeMicros,
+				opType:     opType,
+				errors:     errors,
+			}
+			numOps = 0
+			totalTimeMicros = 0
+			errors = []string{}
+		default:
+			start := time.Now()
+			err := fn()
+			totalTimeMicros += int(time.Since(start).Microseconds())
+			if err != nil {
+				errors = append(errors, fmt.Sprint(err.Error()))
+			} else {
+				numOps++
+			}
+		}
+	}
+}
+
 func (bencher *BencherInstance) StatWorker() {
 	tickTime := 200
 	ticker := time.NewTicker(time.Duration(tickTime) * time.Millisecond)
-	stats := []*FuncResult{}
+	stats := []*StatResult{}
 	area, err := pterm.DefaultArea.Start()
 	if err != nil {
 		log.Fatal("Error setting up output area: ", err)
@@ -184,7 +217,7 @@ func (bencher *BencherInstance) StatWorker() {
 
 	lastStatBlock := time.Now()
 	// TODO: clean this up
-	statMap := map[string]*FuncResult{}
+	statMap := map[string]*StatResult{}
 	for {
 		select {
 		case result := <-bencher.returnChannel:
@@ -192,7 +225,7 @@ func (bencher *BencherInstance) StatWorker() {
 		case <-ticker.C:
 			if time.Since(lastStatBlock).Seconds() > 10 {
 				lastStatBlock = time.Now()
-				statMap = map[string]*FuncResult{}
+				statMap = map[string]*StatResult{}
 				area.Stop()
 				fmt.Println()
 				area, err = pterm.DefaultArea.Start()
@@ -213,7 +246,7 @@ func (bencher *BencherInstance) StatWorker() {
 						statMap[v.opType] = v
 					}
 				}
-				stats = []*FuncResult{}
+				stats = []*StatResult{}
 				td := [][]string{
 					{"Operation", "Per Second", "Avg Speed (us)", "Errors"},
 				}
@@ -347,7 +380,6 @@ func (bencher *BencherInstance) Start() {
 		insertWorker := StartInsertWorker(bencher)
 		bencher.insertWorkers = append(bencher.insertWorkers, insertWorker)
 	}
-
 	for i := 0; i < *bencher.config.NumIDReadWorkers; i++ {
 		StartIDReadWorker(bencher)
 	}

@@ -32,44 +32,29 @@ func (updateWorker *UpdateWorker) updateDocument(collection *mongo.Collection, f
 }
 
 func (updateWorker *UpdateWorker) Start() {
-	ticker := time.NewTicker(time.Duration(*updateWorker.bencher.config.StatTickSpeedMillis) * time.Millisecond)
-	numOps := 0
-	totalTimeMicros := 0
 	primaryCollection := updateWorker.bencher.PrimaryCollection()
 	secondaryCollection := updateWorker.bencher.SecondaryCollection()
 	var wg sync.WaitGroup
-
-	for {
-		select {
-		case <-ticker.C:
-			updateWorker.bencher.returnChannel <- &FuncResult{
-				numOps:     numOps,
-				timeMicros: totalTimeMicros,
-				opType:     "update",
-			}
-			numOps = 0
-			totalTimeMicros = 0
-		default:
-			start := time.Now()
-			insertWorker := updateWorker.bencher.RandomInsertWorker()
-			if insertWorker.LastId == 0 {
-				pterm.Printfln("Waiting for insert worker to start before updating....")
-				time.Sleep(1 * time.Second)
-			} else {
-				newAmount := rand.Intn(10000)
-				docId := insertWorker.LastId + 1 + (insertWorker.WorkerIndex * 100_000_000_000)
-				filter := bson.M{"_id": docId}
-				update := bson.M{"$set": bson.M{"amount": newAmount}}
+	op := func() error {
+		insertWorker := updateWorker.bencher.RandomInsertWorker()
+		if insertWorker.LastId == 0 {
+			pterm.Printfln("Waiting for insert worker to start before updating....")
+			time.Sleep(1 * time.Second)
+		} else {
+			newAmount := rand.Intn(10000)
+			docId := insertWorker.LastId + 1 + (insertWorker.WorkerIndex * 100_000_000_000)
+			filter := bson.M{"_id": docId}
+			update := bson.M{"$set": bson.M{"amount": newAmount}}
+			wg.Add(1)
+			go updateWorker.updateDocument(primaryCollection, filter, update, &wg)
+			if secondaryCollection != nil {
 				wg.Add(1)
-				go updateWorker.updateDocument(primaryCollection, filter, update, &wg)
-				if secondaryCollection != nil {
-					wg.Add(1)
-					go updateWorker.updateDocument(secondaryCollection, filter, update, &wg)
-				}
-				wg.Wait()
+				go updateWorker.updateDocument(secondaryCollection, filter, update, &wg)
 			}
-			totalTimeMicros += int(time.Since(start).Microseconds())
-			numOps++
+			wg.Wait()
 		}
+		// TODO error
+		return nil
 	}
+	updateWorker.bencher.TrackOperations("update", op)
 }
