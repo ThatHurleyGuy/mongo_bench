@@ -12,10 +12,10 @@ import (
 )
 
 type UpdateWorker struct {
-	bencher *Bencher
+	bencher *BencherInstance
 }
 
-func StartUpdateWorker(bencher *Bencher) *UpdateWorker {
+func StartUpdateWorker(bencher *BencherInstance) *UpdateWorker {
 	updateWorker := &UpdateWorker{
 		bencher: bencher,
 	}

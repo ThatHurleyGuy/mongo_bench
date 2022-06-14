@@ -11,12 +11,14 @@ import (
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
+	"go.mongodb.org/mongo-driver/x/mongo/driver/uuid"
 )
 
 var (
 	TransactionCategories      = []string{"first_sale", "refund", "promotion"}
 	MetadataDatabase           = "bench_metadata"
 	InsertWorkerCollectionName = "insert_workers"
+	InstanceCollectionName     = "bencher_instances"
 	BenchDatabase              = "mongo_bench"
 	BenchCollection            = "transactions"
 )
@@ -44,7 +46,10 @@ type Config struct {
 	StatTickSpeedMillis   *int
 }
 
-type Bencher struct {
+type BencherInstance struct {
+	ID        uuid.UUID `bson:"_id"`
+	IsPrimary bool      `bson:"isPrimary"`
+
 	ctx                  context.Context
 	config               *Config
 	returnChannel        chan FuncResult
@@ -60,9 +65,15 @@ type FuncResult struct {
 	opType     string
 }
 
-func NewBencher(ctx context.Context, config *Config) *Bencher {
+func NewBencher(ctx context.Context, config *Config) *BencherInstance {
 	inputChannel := make(chan FuncResult)
-	bencher := &Bencher{
+	uuid, err := uuid.New()
+	if err != nil {
+		log.Fatal("Error generating uuid: ", err)
+	}
+	bencher := &BencherInstance{
+		ID:              uuid,
+		IsPrimary:       false, // Assume false until inserted into metadata DB
 		ctx:             ctx,
 		config:          config,
 		returnChannel:   inputChannel,
@@ -71,22 +82,59 @@ func NewBencher(ctx context.Context, config *Config) *Bencher {
 	return bencher
 }
 
-func (bencher *Bencher) PrimaryCollection() *mongo.Collection {
+func (bencher *BencherInstance) PrimaryCollection() *mongo.Collection {
 	return bencher.PrimaryMongoClient.Database(BenchDatabase).Collection(BenchCollection)
 }
 
-func (bencher *Bencher) SecondaryCollection() *mongo.Collection {
+func (bencher *BencherInstance) SecondaryCollection() *mongo.Collection {
 	if bencher.SecondaryMongoClient == nil {
 		return nil
 	}
 	return bencher.SecondaryMongoClient.Database(BenchDatabase).Collection(BenchCollection)
 }
 
-func (bencher *Bencher) InsertWorkerCollection() *mongo.Collection {
+func (bencher *BencherInstance) makeClient(uri string) *mongo.Client {
+	client, err := mongo.NewClient(options.Client().ApplyURI(uri))
+	if err != nil {
+		log.Fatal(err)
+	}
+	err = client.Connect(bencher.ctx)
+	if err != nil {
+		log.Fatal(err)
+	}
+	return client
+}
+
+func (bencher *BencherInstance) makePrimaryClient() *mongo.Client {
+	if bencher.PrimaryMongoClient == nil {
+		bencher.PrimaryMongoClient = bencher.makeClient(*bencher.config.PrimaryURI)
+	}
+	return bencher.PrimaryMongoClient
+}
+
+func (bencher *BencherInstance) makeSecondaryClient() *mongo.Client {
+	if bencher.SecondaryMongoClient == nil && *bencher.config.SecondaryURI != "" {
+		bencher.SecondaryMongoClient = bencher.makeClient(*bencher.config.SecondaryURI)
+	}
+	return bencher.SecondaryMongoClient
+}
+
+func (bencher *BencherInstance) makeMetadataClient() *mongo.Client {
+	if bencher.MetadataMongoClient == nil {
+		bencher.MetadataMongoClient = bencher.makeClient(*bencher.config.MetadataURI)
+	}
+	return bencher.MetadataMongoClient
+}
+
+func (bencher *BencherInstance) InsertWorkerCollection() *mongo.Collection {
 	return bencher.MetadataMongoClient.Database(MetadataDatabase).Collection(InsertWorkerCollectionName)
 }
 
-func (bencher *Bencher) RandomInsertWorker() *InsertWorker {
+func (bencher *BencherInstance) BencherInstanceCollection() *mongo.Collection {
+	return bencher.MetadataMongoClient.Database(MetadataDatabase).Collection(InstanceCollectionName)
+}
+
+func (bencher *BencherInstance) RandomInsertWorker() *InsertWorker {
 	// TODO: speed this up?
 	values := make([]*InsertWorker, 0, len(bencher.insertWorkerMap))
 	for _, v := range bencher.insertWorkerMap {
@@ -108,7 +156,7 @@ func tableRow(stats []int, numWorkers int, statType string) []string {
 	return []string{statType, fmt.Sprint(perSecond), fmt.Sprint(avgSpeed)}
 }
 
-func (bencher *Bencher) StatWorker() {
+func (bencher *BencherInstance) StatWorker() {
 	tickTime := 200
 	ticker := time.NewTicker(time.Duration(tickTime) * time.Millisecond)
 	stats := []FuncResult{}
@@ -169,81 +217,117 @@ func (bencher *Bencher) StatWorker() {
 	}
 }
 
-func (bencher *Bencher) SetupDB(ctx context.Context, uri string) (*mongo.Client, error) {
-	client, err := mongo.NewClient(options.Client().ApplyURI(uri))
-	if err != nil {
-		log.Fatal(err)
+func (bencher *BencherInstance) SetupDB(client *mongo.Client) error {
+	if bencher.IsPrimary {
+		index := mongo.IndexModel{
+			Keys: bson.D{{Key: "createdat", Value: -1}, {Key: "category", Value: 1}},
+		}
+		_, err := client.Database(BenchDatabase).Collection(BenchCollection).Indexes().CreateOne(bencher.ctx, index)
+		if err != nil {
+			return err
+		}
 	}
-	err = client.Connect(bencher.ctx)
-	if err != nil {
-		log.Fatal(err)
-	}
-	// TODO: Only drop if "primary"
-	err = client.Database(BenchDatabase).Drop(ctx)
-	if err != nil {
-		return nil, err
-	}
-	index := mongo.IndexModel{
-		Keys: bson.D{{Key: "createdat", Value: -1}, {Key: "category", Value: 1}},
-	}
-	_, err = client.Database(BenchDatabase).Collection(BenchCollection).Indexes().CreateOne(ctx, index)
-	if err != nil {
-		return nil, err
-	}
-	return client, nil
+	return nil
 }
 
-func (bencher *Bencher) SetupMetadataDB(ctx context.Context, uri string) (*mongo.Client, error) {
-	client, err := mongo.NewClient(options.Client().ApplyURI(uri))
+func (bencher *BencherInstance) SetupMetadataDB() error {
+	filter := bson.M{"isPrimary": true}
+	opts := options.Update()
+	opts.SetUpsert(true)
+	update := bson.M{
+		"$setOnInsert": bson.M{
+			"_id":       bencher.ID,
+			"isPrimary": true,
+		},
+	}
+	result, err := bencher.BencherInstanceCollection().UpdateOne(context.Background(), filter, update, opts)
 	if err != nil {
-		log.Fatal(err)
+		return err
 	}
-	err = client.Connect(bencher.ctx)
-	if err != nil {
-		log.Fatal(err)
+
+	if result.UpsertedID == bencher.ID {
+		log.Printf("This instance is the primary, resetting the collections")
+		bencher.IsPrimary = true
+	} else {
+		_, err := bencher.BencherInstanceCollection().InsertOne(context.Background(), &bencher)
+		if err != nil {
+			return err
+		}
+		log.Printf("Other primary exists, just starting workers")
+		bencher.IsPrimary = false
 	}
-	// TODO: Only if "primary"
-	err = client.Database(MetadataDatabase).Drop(ctx)
-	if err != nil {
-		return nil, err
+
+	if bencher.IsPrimary {
+		err = bencher.MetadataMongoClient.Database(MetadataDatabase).Drop(bencher.ctx)
+		if err != nil {
+			return err
+		}
+		index := mongo.IndexModel{
+			Keys:    bson.D{{Key: "workerIndex", Value: 1}},
+			Options: options.Index().SetUnique(true),
+		}
+		_, err = bencher.MetadataMongoClient.Database(MetadataDatabase).Collection(InsertWorkerCollectionName).Indexes().CreateOne(bencher.ctx, index)
+		if err != nil {
+			return err
+		}
 	}
-	index := mongo.IndexModel{
-		Keys:    bson.D{{Key: "workerIndex", Value: 1}},
-		Options: options.Index().SetUnique(true),
-	}
-	_, err = client.Database(MetadataDatabase).Collection(InsertWorkerCollectionName).Indexes().CreateOne(ctx, index)
-	if err != nil {
-		return nil, err
-	}
-	return client, nil
+	return nil
 }
 
-func (bencher *Bencher) Close() {
+func (bencher *BencherInstance) Close() {
+	bencher.MetadataMongoClient.Disconnect(bencher.ctx)
 	bencher.PrimaryMongoClient.Disconnect(bencher.ctx)
 	if bencher.SecondaryMongoClient != nil {
 		bencher.SecondaryMongoClient.Disconnect(bencher.ctx)
 	}
 }
 
-func (bencher *Bencher) Start() {
+func (bencher *BencherInstance) Reset() {
+	bencher.makePrimaryClient()
+	bencher.makeSecondaryClient()
+	bencher.makeMetadataClient()
+	err := bencher.MetadataMongoClient.Database(BenchDatabase).Drop(bencher.ctx)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	err = bencher.PrimaryMongoClient.Database(BenchDatabase).Drop(bencher.ctx)
+	if err != nil {
+		log.Fatal(err)
+	}
+	if bencher.SecondaryMongoClient != nil {
+		err = bencher.SecondaryMongoClient.Database(BenchDatabase).Drop(bencher.ctx)
+		if err != nil {
+			log.Fatal(err)
+		}
+	}
+}
+
+func (bencher *BencherInstance) Start() {
 	defer bencher.Close()
 	var err error
+
+	log.Println("Setting up metadata db")
+	bencher.makeMetadataClient()
+	err = bencher.SetupMetadataDB()
+	if err != nil {
+		log.Fatal("Error setting up metadata mongo connection: ", err)
+	}
+
 	log.Println("Setting up primary")
-	bencher.PrimaryMongoClient, err = bencher.SetupDB(bencher.ctx, *bencher.config.PrimaryURI)
+	bencher.makePrimaryClient()
+	err = bencher.SetupDB(bencher.PrimaryMongoClient)
 	if err != nil {
 		log.Fatal("Error setting up primary: ", err)
 	}
+
 	if *bencher.config.SecondaryURI != "" {
 		log.Println("Setting up secondary")
-		bencher.SecondaryMongoClient, err = bencher.SetupDB(bencher.ctx, *bencher.config.SecondaryURI)
+		bencher.makeSecondaryClient()
+		err = bencher.SetupDB(bencher.SecondaryMongoClient)
 		if err != nil {
 			log.Fatal("Error reseting secondary: ", err)
 		}
-	}
-	log.Println("Setting up metadata db")
-	bencher.MetadataMongoClient, err = bencher.SetupMetadataDB(bencher.ctx, *bencher.config.MetadataURI)
-	if err != nil {
-		log.Fatal("Error setting up metadata mongo connection: ", err)
 	}
 
 	for i := 0; i < *bencher.config.NumInsertWorkers; i++ {

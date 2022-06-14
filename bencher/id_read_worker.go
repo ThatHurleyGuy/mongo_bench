@@ -10,10 +10,10 @@ import (
 )
 
 type IDReadWorker struct {
-	bencher *Bencher
+	bencher *BencherInstance
 }
 
-func StartIDReadWorker(bencher *Bencher) *IDReadWorker {
+func StartIDReadWorker(bencher *BencherInstance) *IDReadWorker {
 	worker := &IDReadWorker{
 		bencher: bencher,
 	}

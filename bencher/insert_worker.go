@@ -12,12 +12,13 @@ import (
 
 // Each worker will get a serial index to help ensure uniqueness across inserts
 type InsertWorker struct {
-	bencher     *Bencher
 	WorkerIndex int `bson:"workerIndex"`
 	LastId      int `bson:"lastId"`
+
+	bencher *BencherInstance
 }
 
-func StartInsertWorker(bencher *Bencher) *InsertWorker {
+func StartInsertWorker(bencher *BencherInstance) *InsertWorker {
 	workerCollection := bencher.InsertWorkerCollection()
 
 	for {

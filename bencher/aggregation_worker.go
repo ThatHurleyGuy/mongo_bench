@@ -8,10 +8,10 @@ import (
 )
 
 type AggregationWorker struct {
-	bencher *Bencher
+	bencher *BencherInstance
 }
 
-func StartAggregationWorker(bencher *Bencher) *AggregationWorker {
+func StartAggregationWorker(bencher *BencherInstance) *AggregationWorker {
 	worker := &AggregationWorker{
 		bencher: bencher,
 	}
