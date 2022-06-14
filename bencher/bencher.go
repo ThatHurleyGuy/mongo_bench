@@ -9,9 +9,11 @@ import (
 
 	"github.com/pterm/pterm"
 	"go.mongodb.org/mongo-driver/bson"
+	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
-	"go.mongodb.org/mongo-driver/x/mongo/driver/uuid"
+	"go.mongodb.org/mongo-driver/mongo/readpref"
+	"go.mongodb.org/mongo-driver/mongo/writeconcern"
 )
 
 var (
@@ -36,24 +38,26 @@ type Transaction struct {
 }
 
 type Config struct {
-	PrimaryURI            *string
-	SecondaryURI          *string
-	MetadataURI           *string
-	NumInsertWorkers      *int
-	NumIDReadWorkers      *int
-	NumAggregationWorkers *int
-	NumUpdateWorkers      *int
-	StatTickSpeedMillis   *int
+	PrimaryURI                *string
+	SecondaryURI              *string
+	MetadataURI               *string
+	NumInsertWorkers          *int
+	NumIDReadWorkers          *int
+	NumSecondaryIDReadWorkers *int
+	NumAggregationWorkers     *int
+	NumUpdateWorkers          *int
+	StatTickSpeedMillis       *int
+	Reset                     *bool
 }
 
 type BencherInstance struct {
-	ID        uuid.UUID `bson:"_id"`
-	IsPrimary bool      `bson:"isPrimary"`
+	ID        primitive.ObjectID `bson:"_id"`
+	IsPrimary bool               `bson:"isPrimary"`
 
 	ctx                  context.Context
 	config               *Config
 	returnChannel        chan FuncResult
-	insertWorkerMap      map[int]*InsertWorker
+	insertWorkers        []*InsertWorker
 	PrimaryMongoClient   *mongo.Client
 	SecondaryMongoClient *mongo.Client
 	MetadataMongoClient  *mongo.Client
@@ -63,27 +67,29 @@ type FuncResult struct {
 	numOps     int
 	timeMicros int
 	opType     string
+	errors     int
 }
 
 func NewBencher(ctx context.Context, config *Config) *BencherInstance {
 	inputChannel := make(chan FuncResult)
-	uuid, err := uuid.New()
-	if err != nil {
-		log.Fatal("Error generating uuid: ", err)
-	}
 	bencher := &BencherInstance{
-		ID:              uuid,
-		IsPrimary:       false, // Assume false until inserted into metadata DB
-		ctx:             ctx,
-		config:          config,
-		returnChannel:   inputChannel,
-		insertWorkerMap: map[int]*InsertWorker{},
+		ID:            primitive.NewObjectID(),
+		IsPrimary:     false, // Assume false until inserted into metadata DB
+		ctx:           ctx,
+		config:        config,
+		returnChannel: inputChannel,
+		insertWorkers: []*InsertWorker{},
 	}
 	return bencher
 }
 
 func (bencher *BencherInstance) PrimaryCollection() *mongo.Collection {
 	return bencher.PrimaryMongoClient.Database(BenchDatabase).Collection(BenchCollection)
+}
+
+func (bencher *BencherInstance) PrimaryCollectionSecondaryRead() *mongo.Collection {
+	opts := options.Database().SetReadPreference(readpref.Secondary())
+	return bencher.PrimaryMongoClient.Database(BenchDatabase, opts).Collection(BenchCollection)
 }
 
 func (bencher *BencherInstance) SecondaryCollection() *mongo.Collection {
@@ -94,7 +100,9 @@ func (bencher *BencherInstance) SecondaryCollection() *mongo.Collection {
 }
 
 func (bencher *BencherInstance) makeClient(uri string) *mongo.Client {
-	client, err := mongo.NewClient(options.Client().ApplyURI(uri))
+	// Force majority write concerns to ensure secondary reads work more consistently
+	connectionString := options.Client().ApplyURI(uri).SetWriteConcern(writeconcern.New(writeconcern.WMajority()))
+	client, err := mongo.NewClient(connectionString)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -135,13 +143,8 @@ func (bencher *BencherInstance) BencherInstanceCollection() *mongo.Collection {
 }
 
 func (bencher *BencherInstance) RandomInsertWorker() *InsertWorker {
-	// TODO: speed this up?
-	values := make([]*InsertWorker, 0, len(bencher.insertWorkerMap))
-	for _, v := range bencher.insertWorkerMap {
-		values = append(values, v)
-	}
-	index := rand.Intn(len(values))
-	return values[index]
+	index := rand.Intn(len(bencher.insertWorkers))
+	return bencher.insertWorkers[index]
 }
 
 func tableRow(stats []int, numWorkers int, statType string) []string {
@@ -153,7 +156,7 @@ func tableRow(stats []int, numWorkers int, statType string) []string {
 	if stats[1] > 0 {
 		perSecond = int(float64(numWorkers*stats[0]) / float64(float64(stats[1])/1_000_000))
 	}
-	return []string{statType, fmt.Sprint(perSecond), fmt.Sprint(avgSpeed)}
+	return []string{statType, fmt.Sprint(perSecond), fmt.Sprint(avgSpeed), fmt.Sprint(stats[2])}
 }
 
 func (bencher *BencherInstance) StatWorker() {
@@ -166,11 +169,13 @@ func (bencher *BencherInstance) StatWorker() {
 	}
 
 	lastStatBlock := time.Now()
+	// TODO: clean this up
 	statMap := map[string][]int{}
-	statMap["insert"] = []int{0, 0, 0}
-	statMap["id_read"] = []int{0, 0, 0}
-	statMap["aggregation"] = []int{0, 0, 0}
-	statMap["update"] = []int{0, 0, 0}
+	statMap["insert"] = []int{0, 0, 0, 0}
+	statMap["id_read"] = []int{0, 0, 0, 0}
+	statMap["secondary_node_id_read"] = []int{0, 0, 0, 0}
+	statMap["aggregation"] = []int{0, 0, 0, 0}
+	statMap["update"] = []int{0, 0, 0, 0}
 	for {
 		select {
 		case result := <-bencher.returnChannel:
@@ -179,10 +184,11 @@ func (bencher *BencherInstance) StatWorker() {
 			if time.Since(lastStatBlock).Seconds() > 10 {
 				lastStatBlock = time.Now()
 				statMap = map[string][]int{}
-				statMap["insert"] = []int{0, 0, 0}
-				statMap["id_read"] = []int{0, 0, 0}
-				statMap["aggregation"] = []int{0, 0, 0}
-				statMap["update"] = []int{0, 0, 0}
+				statMap["insert"] = []int{0, 0, 0, 0}
+				statMap["id_read"] = []int{0, 0, 0, 0}
+				statMap["secondary_node_id_read"] = []int{0, 0, 0, 0}
+				statMap["aggregation"] = []int{0, 0, 0, 0}
+				statMap["update"] = []int{0, 0, 0, 0}
 				area.Stop()
 				fmt.Println()
 				area, err = pterm.DefaultArea.Start()
@@ -197,17 +203,19 @@ func (bencher *BencherInstance) StatWorker() {
 					if ok {
 						statMap[v.opType][0] += v.numOps
 						statMap[v.opType][1] += v.timeMicros
-						statMap[v.opType][2]++
+						statMap[v.opType][2] += v.errors
+						statMap[v.opType][3]++
 					} else {
-						statMap[v.opType] = []int{v.numOps, v.timeMicros, 1}
+						statMap[v.opType] = []int{v.numOps, v.timeMicros, v.errors, 1}
 					}
 				}
 				stats = []FuncResult{}
 				td := [][]string{
-					{"Operation", "Per Second", "Avg Speed (us)"},
+					{"Operation", "Per Second", "Avg Speed (us)", "Errors"},
 				}
 				td = append(td, tableRow(statMap["insert"], *bencher.config.NumInsertWorkers, "Insert"))
 				td = append(td, tableRow(statMap["id_read"], *bencher.config.NumIDReadWorkers, "Reads by _id"))
+				td = append(td, tableRow(statMap["secondary_node_id_read"], *bencher.config.NumIDReadWorkers, "Secondary Reads"))
 				td = append(td, tableRow(statMap["aggregation"], *bencher.config.NumAggregationWorkers, "Aggregations"))
 				td = append(td, tableRow(statMap["update"], *bencher.config.NumUpdateWorkers, "Updates"))
 				boxedTable, _ := pterm.DefaultTable.WithHasHeader().WithData(td).WithBoxed().Srender()
@@ -246,14 +254,14 @@ func (bencher *BencherInstance) SetupMetadataDB() error {
 	}
 
 	if result.UpsertedID == bencher.ID {
-		log.Printf("This instance is the primary, resetting the collections")
+		log.Printf("This instance is the primary")
 		bencher.IsPrimary = true
 	} else {
+		log.Printf("Other primary exists, just starting workers")
 		_, err := bencher.BencherInstanceCollection().InsertOne(context.Background(), &bencher)
 		if err != nil {
 			return err
 		}
-		log.Printf("Other primary exists, just starting workers")
 		bencher.IsPrimary = false
 	}
 
@@ -286,7 +294,7 @@ func (bencher *BencherInstance) Reset() {
 	bencher.makePrimaryClient()
 	bencher.makeSecondaryClient()
 	bencher.makeMetadataClient()
-	err := bencher.MetadataMongoClient.Database(BenchDatabase).Drop(bencher.ctx)
+	err := bencher.MetadataMongoClient.Database(MetadataDatabase).Drop(bencher.ctx)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -306,6 +314,10 @@ func (bencher *BencherInstance) Reset() {
 func (bencher *BencherInstance) Start() {
 	defer bencher.Close()
 	var err error
+
+	if *bencher.config.Reset {
+		bencher.Reset()
+	}
 
 	log.Println("Setting up metadata db")
 	bencher.makeMetadataClient()
@@ -332,11 +344,14 @@ func (bencher *BencherInstance) Start() {
 
 	for i := 0; i < *bencher.config.NumInsertWorkers; i++ {
 		insertWorker := StartInsertWorker(bencher)
-		bencher.insertWorkerMap[insertWorker.WorkerIndex] = insertWorker
+		bencher.insertWorkers = append(bencher.insertWorkers, insertWorker)
 	}
 
 	for i := 0; i < *bencher.config.NumIDReadWorkers; i++ {
 		StartIDReadWorker(bencher)
+	}
+	for i := 0; i < *bencher.config.NumSecondaryIDReadWorkers; i++ {
+		StartSecondaryNodeIDReadWorker(bencher)
 	}
 	for i := 0; i < *bencher.config.NumUpdateWorkers; i++ {
 		StartUpdateWorker(bencher)

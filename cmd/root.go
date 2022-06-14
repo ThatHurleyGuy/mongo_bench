@@ -45,6 +45,7 @@ func init() {
 	config = bencher.Config{}
 	config.NumInsertWorkers = rootCmd.Flags().Int("insert-workers", 1, "Number of insert worker goroutines to run")
 	config.NumIDReadWorkers = rootCmd.Flags().Int("id-read-workers", 1, "Number of id read worker goroutines to run")
+	config.NumSecondaryIDReadWorkers = rootCmd.Flags().Int("secondary-id-read-workers", 1, "Number of secondary id read worker goroutines to run")
 	config.NumAggregationWorkers = rootCmd.Flags().Int("aggregation-works", 1, "Number of aggregation worker goroutines to run")
 	config.NumUpdateWorkers = rootCmd.Flags().Int("update-workers", 1, "Number of update worker goroutines to run")
 	config.StatTickSpeedMillis = rootCmd.Flags().Int("stat-tick-speed", 100, "Milliseconds between stat updates")
@@ -52,4 +53,5 @@ func init() {
 	rootCmd.MarkFlagRequired("primary")
 	config.SecondaryURI = rootCmd.Flags().StringP("secondary", "s", "", "Secondary cluster to connect to. Used to test dual reads in mongobetween")
 	config.MetadataURI = rootCmd.Flags().StringP("metadata", "m", "", "Metadata cluster to store benchmark state, defaults to primary cluster")
+	config.Reset = rootCmd.Flags().BoolP("reset", "r", false, "Reset clusters DBs before starting")
 }

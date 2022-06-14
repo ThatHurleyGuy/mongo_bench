@@ -1,12 +1,13 @@
 package bencher
 
 import (
-	"log"
+	"context"
 	"math/rand"
 	"time"
 
 	"github.com/pterm/pterm"
 	"go.mongodb.org/mongo-driver/bson"
+	"go.mongodb.org/mongo-driver/mongo"
 )
 
 type IDReadWorker struct {
@@ -21,12 +22,28 @@ func StartIDReadWorker(bencher *BencherInstance) *IDReadWorker {
 	return worker
 }
 
+func DoRead(ctx context.Context, insertWorker *InsertWorker, collection *mongo.Collection) error {
+	if insertWorker.LastId == 0 {
+		pterm.Printfln("Waiting for insert worker to start before reading....")
+		time.Sleep(1 * time.Second)
+	} else {
+		docId := rand.Intn(insertWorker.LastId) + 1 + (insertWorker.WorkerIndex * 100_000_000_000)
+		doc := collection.FindOne(ctx, bson.M{"_id": docId})
+		tran := &Transaction{}
+		err := doc.Decode(tran)
+		return err
+	}
+	return nil
+}
+
 func (worker *IDReadWorker) Start() {
 	ticker := time.NewTicker(time.Duration(*worker.bencher.config.StatTickSpeedMillis) * time.Millisecond)
 	numOps := 0
 	totalTimeMicros := 0
 	collection := worker.bencher.PrimaryCollection()
+	errors := 0
 
+	// TODO: Extract this stat tracking pattern
 	for {
 		select {
 		case <-ticker.C:
@@ -34,26 +51,20 @@ func (worker *IDReadWorker) Start() {
 				numOps:     numOps,
 				timeMicros: totalTimeMicros,
 				opType:     "id_read",
+				errors:     errors,
 			}
 			numOps = 0
 			totalTimeMicros = 0
+			errors = 0
 		default:
 			start := time.Now()
-			insertWorker := worker.bencher.RandomInsertWorker()
-			if insertWorker.LastId == 0 {
-				pterm.Printfln("Waiting for insert worker to start before reading....")
-				time.Sleep(1 * time.Second)
+			err := DoRead(worker.bencher.ctx, worker.bencher.RandomInsertWorker(), collection)
+			if err != nil {
+				errors++
 			} else {
-				docId := rand.Intn(insertWorker.LastId) + 1 + (insertWorker.WorkerIndex * 100_000_000_000)
-				doc := collection.FindOne(worker.bencher.ctx, bson.M{"_id": docId})
-				tran := &Transaction{}
-				err := doc.Decode(tran)
-				if err != nil {
-					log.Fatal("Bad find...", doc.Err())
-				}
-				totalTimeMicros += int(time.Since(start).Microseconds())
 				numOps++
 			}
+			totalTimeMicros += int(time.Since(start).Microseconds())
 		}
 	}
 }
