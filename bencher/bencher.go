@@ -149,6 +149,10 @@ func (bencher *BencherInstance) RandomInsertWorker() *InsertWorker {
 }
 
 func tableRow(stats *FuncResult, numWorkers int, statType string) []string {
+	if stats == nil {
+		return []string{statType, fmt.Sprint(0), fmt.Sprint(0), fmt.Sprint(map[string]int{})}
+	}
+
 	avgSpeed := 0
 	perSecond := 0
 	if stats.numOps > 0 {
@@ -181,11 +185,6 @@ func (bencher *BencherInstance) StatWorker() {
 	lastStatBlock := time.Now()
 	// TODO: clean this up
 	statMap := map[string]*FuncResult{}
-	statMap["insert"] = &FuncResult{}
-	statMap["id_read"] = &FuncResult{}
-	statMap["secondary_node_id_read"] = &FuncResult{}
-	statMap["aggregation"] = &FuncResult{}
-	statMap["update"] = &FuncResult{}
 	for {
 		select {
 		case result := <-bencher.returnChannel:
@@ -194,11 +193,6 @@ func (bencher *BencherInstance) StatWorker() {
 			if time.Since(lastStatBlock).Seconds() > 10 {
 				lastStatBlock = time.Now()
 				statMap = map[string]*FuncResult{}
-				statMap["insert"] = &FuncResult{}
-				statMap["id_read"] = &FuncResult{}
-				statMap["secondary_node_id_read"] = &FuncResult{}
-				statMap["aggregation"] = &FuncResult{}
-				statMap["update"] = &FuncResult{}
 				area.Stop()
 				fmt.Println()
 				area, err = pterm.DefaultArea.Start()
@@ -215,7 +209,6 @@ func (bencher *BencherInstance) StatWorker() {
 						stat.numOps += v.numOps
 						stat.timeMicros += v.timeMicros
 						stat.errors = append(stat.errors, v.errors...)
-						// statMap[v.opType][2] += v.errors
 					} else {
 						statMap[v.opType] = v
 					}
