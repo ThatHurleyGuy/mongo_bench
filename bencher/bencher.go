@@ -7,7 +7,6 @@ import (
 	"math/rand"
 	"time"
 
-	"github.com/pterm/pterm"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
@@ -148,31 +147,6 @@ func (bencher *BencherInstance) RandomInsertWorker() *InsertWorker {
 	return bencher.insertWorkers[index]
 }
 
-func tableRow(stats *StatResult, numWorkers int, statType string) []string {
-	if stats == nil {
-		return []string{statType, fmt.Sprint(0), fmt.Sprint(0), fmt.Sprint(map[string]int{})}
-	}
-
-	avgSpeed := 0
-	perSecond := 0
-	if stats.numOps > 0 {
-		avgSpeed = stats.timeMicros / stats.numOps
-	}
-	if stats.timeMicros > 0 {
-		perSecond = int(float64(numWorkers*stats.numOps) / float64(float64(stats.timeMicros)/1_000_000))
-	}
-	groupedErrors := map[string]int{}
-	for _, v := range stats.errors {
-		_, ok := groupedErrors[v]
-		if ok {
-			groupedErrors[v]++
-		} else {
-			groupedErrors[v] = 1
-		}
-	}
-	return []string{statType, fmt.Sprint(perSecond), fmt.Sprint(avgSpeed), fmt.Sprint(groupedErrors)}
-}
-
 type MongoOp func() error
 
 func (bencher *BencherInstance) TrackOperations(opType string, fn MongoOp) {
@@ -201,62 +175,6 @@ func (bencher *BencherInstance) TrackOperations(opType string, fn MongoOp) {
 				errors = append(errors, fmt.Sprint(err.Error()))
 			} else {
 				numOps++
-			}
-		}
-	}
-}
-
-func (bencher *BencherInstance) StatWorker() {
-	tickTime := 200
-	ticker := time.NewTicker(time.Duration(tickTime) * time.Millisecond)
-	stats := []*StatResult{}
-	area, err := pterm.DefaultArea.Start()
-	if err != nil {
-		log.Fatal("Error setting up output area: ", err)
-	}
-
-	lastStatBlock := time.Now()
-	// TODO: clean this up
-	statMap := map[string]*StatResult{}
-	for {
-		select {
-		case result := <-bencher.returnChannel:
-			stats = append(stats, result)
-		case <-ticker.C:
-			if time.Since(lastStatBlock).Seconds() > 10 {
-				lastStatBlock = time.Now()
-				statMap = map[string]*StatResult{}
-				area.Stop()
-				fmt.Println()
-				area, err = pterm.DefaultArea.Start()
-				if err != nil {
-					log.Fatal("Error setting up output area: ", err)
-				}
-			}
-
-			if len(stats) > 0 {
-				for _, v := range stats {
-					_, ok := statMap[v.opType]
-					if ok {
-						stat := statMap[v.opType]
-						stat.numOps += v.numOps
-						stat.timeMicros += v.timeMicros
-						stat.errors = append(stat.errors, v.errors...)
-					} else {
-						statMap[v.opType] = v
-					}
-				}
-				stats = []*StatResult{}
-				td := [][]string{
-					{"Operation", "Per Second", "Avg Speed (us)", "Errors"},
-				}
-				td = append(td, tableRow(statMap["insert"], *bencher.config.NumInsertWorkers, "Insert"))
-				td = append(td, tableRow(statMap["id_read"], *bencher.config.NumIDReadWorkers, "Reads by _id"))
-				td = append(td, tableRow(statMap["secondary_node_id_read"], *bencher.config.NumIDReadWorkers, "Secondary Reads"))
-				td = append(td, tableRow(statMap["aggregation"], *bencher.config.NumAggregationWorkers, "Aggregations"))
-				td = append(td, tableRow(statMap["update"], *bencher.config.NumUpdateWorkers, "Updates"))
-				boxedTable, _ := pterm.DefaultTable.WithHasHeader().WithData(td).WithBoxed().Srender()
-				area.Update(boxedTable)
 			}
 		}
 	}
