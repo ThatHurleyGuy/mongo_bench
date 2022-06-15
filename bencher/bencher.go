@@ -101,7 +101,11 @@ func (bencher *BencherInstance) SecondaryCollection() *mongo.Collection {
 
 func (bencher *BencherInstance) makeClient(uri string) *mongo.Client {
 	// Force majority write concerns to ensure secondary reads work more consistently
-	connectionString := options.Client().ApplyURI(uri).SetWriteConcern(writeconcern.New(writeconcern.WMajority()))
+	connectionString := options.Client().ApplyURI(uri)
+	connectionString.SetWriteConcern(writeconcern.New(writeconcern.WMajority()))
+	connectionString.SetSocketTimeout(5000 * time.Millisecond)
+	connectionString.SetConnectTimeout(5000 * time.Millisecond)
+	connectionString.SetServerSelectionTimeout(5000 * time.Millisecond)
 	// connectionString := options.Client().ApplyURI(uri).SetWriteConcern(writeconcern.New(writeconcern.W(1)))
 	client, err := mongo.NewClient(connectionString)
 	if err != nil {
