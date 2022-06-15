@@ -7,6 +7,7 @@ import (
 	"math/rand"
 	"time"
 
+	"github.com/pterm/pterm"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
@@ -312,5 +313,6 @@ func (bencher *BencherInstance) Start() {
 	}
 	go bencher.StatWorker()
 
-	time.Sleep(10 * time.Minute)
+	time.Sleep(100 * time.Minute)
+	pterm.Printfln("Benchmark has run its course, exiting...")
 }
