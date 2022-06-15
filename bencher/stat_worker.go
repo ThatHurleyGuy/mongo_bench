@@ -6,6 +6,8 @@ import (
 	"time"
 
 	"github.com/pterm/pterm"
+	"golang.org/x/text/language"
+	"golang.org/x/text/message"
 )
 
 func tableRow(stats *StatResult, numWorkers int, statType string) []string {
@@ -30,7 +32,8 @@ func tableRow(stats *StatResult, numWorkers int, statType string) []string {
 			groupedErrors[v] = 1
 		}
 	}
-	return []string{statType, fmt.Sprint(perSecond), fmt.Sprint(avgSpeed), fmt.Sprint(groupedErrors)}
+	p := message.NewPrinter(language.English)
+	return []string{statType, p.Sprintf("%d", perSecond), p.Sprintf("%d", avgSpeed), fmt.Sprint(groupedErrors)}
 }
 
 func (bencher *BencherInstance) StatWorker() {
