@@ -54,7 +54,7 @@ func (bencher *BencherInstance) StatWorker() {
 				lastStatBlock = time.Now()
 				statMap = map[string]*StatResult{}
 				area.Stop()
-				fmt.Println()
+				pterm.Printfln("Time: %+v", time.Now())
 				area, err = pterm.DefaultArea.Start()
 				if err != nil {
 					log.Fatal("Error setting up output area: ", err)
