@@ -1,7 +1,6 @@
 package bencher
 
 import (
-	"log"
 	"time"
 
 	"go.mongodb.org/mongo-driver/bson"
@@ -39,13 +38,12 @@ func (worker *AggregationWorker) Start() {
 		// pipeline := mongo.Pipeline{matchStage, groupStage}
 		cursor, err := collection.Aggregate(worker.bencher.ctx, []bson.M{matchStage, groupStage})
 		if err != nil {
-			log.Fatal("Failed aggregation: ", err)
+			return err
 		}
 		var results []bson.M
 		if err = cursor.All(worker.bencher.ctx, &results); err != nil {
-			log.Fatal("Failed parsing aggregation: ", err)
+			return err
 		}
-		// TODO error
 		return nil
 	}
 	worker.bencher.TrackOperations("aggregation", op)

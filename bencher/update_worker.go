@@ -1,7 +1,6 @@
 package bencher
 
 import (
-	"log"
 	"math/rand"
 	"sync"
 	"time"
@@ -23,12 +22,13 @@ func StartUpdateWorker(bencher *BencherInstance) *UpdateWorker {
 	return updateWorker
 }
 
-func (updateWorker *UpdateWorker) updateDocument(collection *mongo.Collection, filter bson.M, update bson.M, wg *sync.WaitGroup) {
+func (updateWorker *UpdateWorker) updateDocument(collection *mongo.Collection, filter bson.M, update bson.M, wg *sync.WaitGroup) error {
 	defer wg.Done()
 	_, err := collection.UpdateOne(updateWorker.bencher.ctx, filter, update)
 	if err != nil {
-		log.Fatal("Bad update...", err)
+		return err
 	}
+	return nil
 }
 
 func (updateWorker *UpdateWorker) Start() {
@@ -46,10 +46,16 @@ func (updateWorker *UpdateWorker) Start() {
 			filter := bson.M{"_id": docId}
 			update := bson.M{"$set": bson.M{"amount": newAmount}}
 			wg.Add(1)
-			go updateWorker.updateDocument(primaryCollection, filter, update, &wg)
+			err := updateWorker.updateDocument(primaryCollection, filter, update, &wg)
+			if err != nil {
+				return err
+			}
 			if secondaryCollection != nil {
-				wg.Add(1)
-				go updateWorker.updateDocument(secondaryCollection, filter, update, &wg)
+				// wg.Add(1)
+				err := updateWorker.updateDocument(secondaryCollection, filter, update, &wg)
+				if err != nil {
+					return err
+				}
 			}
 			wg.Wait()
 		}

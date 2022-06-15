@@ -48,12 +48,13 @@ func StartInsertWorker(bencher *BencherInstance) *InsertWorker {
 	}
 }
 
-func (insertWorker *InsertWorker) insertIntoCollection(collection *mongo.Collection, txn *Transaction, wg *sync.WaitGroup) {
+func (insertWorker *InsertWorker) insertIntoCollection(collection *mongo.Collection, txn *Transaction, wg *sync.WaitGroup) error {
 	defer wg.Done()
 	_, insertErr := collection.InsertOne(insertWorker.bencher.ctx, txn)
 	if insertErr != nil {
-		log.Fatal(insertErr)
+		return insertErr
 	}
+	return nil
 }
 
 func (insertWorker *InsertWorker) Start() {
@@ -71,15 +72,20 @@ func (insertWorker *InsertWorker) Start() {
 			CreatedAt: time.Now(),
 		}
 		wg.Add(1)
-		go insertWorker.insertIntoCollection(primaryCollection, &txn, &wg)
+		err := insertWorker.insertIntoCollection(primaryCollection, &txn, &wg)
+		if err != nil {
+			return err
+		}
 		if secondaryCollection != nil {
 			wg.Add(1)
-			go insertWorker.insertIntoCollection(secondaryCollection, &txn, &wg)
+			err := insertWorker.insertIntoCollection(secondaryCollection, &txn, &wg)
+			if err != nil {
+				return err
+			}
 		}
 		wg.Wait()
 
 		insertWorker.LastId++
-		// TODO error returning
 		return nil
 	}
 	insertWorker.bencher.TrackOperations("insert", op)
