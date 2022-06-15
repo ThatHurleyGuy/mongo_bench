@@ -81,7 +81,7 @@ func (bencher *BencherInstance) StatWorker() {
 			}
 			td = append(td, tableRow(statMap["insert"], *bencher.config.NumInsertWorkers, "Insert"))
 			td = append(td, tableRow(statMap["id_read"], *bencher.config.NumIDReadWorkers, "Reads by _id"))
-			td = append(td, tableRow(statMap["secondary_node_id_read"], *bencher.config.NumIDReadWorkers, "Secondary Reads"))
+			td = append(td, tableRow(statMap["secondary_node_id_read"], *bencher.config.NumSecondaryIDReadWorkers, "Secondary Reads"))
 			td = append(td, tableRow(statMap["aggregation"], *bencher.config.NumAggregationWorkers, "Aggregations"))
 			td = append(td, tableRow(statMap["update"], *bencher.config.NumUpdateWorkers, "Updates"))
 			boxedTable, _ := pterm.DefaultTable.WithHasHeader().WithData(td).WithBoxed().Srender()
