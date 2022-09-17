@@ -2,7 +2,6 @@ package bencher
 
 import (
 	"context"
-	"fmt"
 	"log"
 	"math/rand"
 	"time"
@@ -38,6 +37,7 @@ type Transaction struct {
 }
 
 type Config struct {
+	AutoScale                 *bool
 	PrimaryURI                *string
 	SecondaryURI              *string
 	MetadataURI               *string
@@ -153,37 +153,6 @@ func (bencher *BencherInstance) RandomInsertWorker() *InsertWorker {
 }
 
 type MongoOp func() error
-
-func (bencher *BencherInstance) TrackOperations(opType string, fn MongoOp) {
-	ticker := time.NewTicker(time.Duration(*bencher.config.StatTickSpeedMillis) * time.Millisecond)
-	numOps := 0
-	totalTimeMicros := 0
-	errors := []string{}
-
-	for {
-		select {
-		case <-ticker.C:
-			bencher.returnChannel <- &StatResult{
-				numOps:     numOps,
-				timeMicros: totalTimeMicros,
-				opType:     opType,
-				errors:     errors,
-			}
-			numOps = 0
-			totalTimeMicros = 0
-			errors = []string{}
-		default:
-			start := time.Now()
-			err := fn()
-			totalTimeMicros += int(time.Since(start).Microseconds())
-			if err != nil {
-				errors = append(errors, fmt.Sprint(err.Error()))
-			} else {
-				numOps++
-			}
-		}
-	}
-}
 
 func (bencher *BencherInstance) SetupDB(client *mongo.Client) error {
 	if bencher.IsPrimary {

@@ -7,14 +7,15 @@ import (
 )
 
 type AggregationWorker struct {
-	bencher *BencherInstance
+	bencher          *BencherInstance
+	OperationTracker *OperationTracker
 }
 
 func StartAggregationWorker(bencher *BencherInstance) *AggregationWorker {
 	worker := &AggregationWorker{
 		bencher: bencher,
 	}
-	go worker.Start()
+	worker.Start()
 	return worker
 }
 
@@ -46,5 +47,5 @@ func (worker *AggregationWorker) Start() {
 		}
 		return nil
 	}
-	worker.bencher.TrackOperations("aggregation", op)
+	worker.OperationTracker = NewOperationTracker(worker.bencher, "aggregation", op)
 }

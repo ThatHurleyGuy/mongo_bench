@@ -15,7 +15,8 @@ type InsertWorker struct {
 	WorkerIndex int `bson:"workerIndex"`
 	LastId      int `bson:"lastId"`
 
-	bencher *BencherInstance
+	bencher          *BencherInstance
+	OperationTracker *OperationTracker
 }
 
 func StartInsertWorker(bencher *BencherInstance) *InsertWorker {
@@ -42,7 +43,7 @@ func StartInsertWorker(bencher *BencherInstance) *InsertWorker {
 				log.Fatal("Error inserting insert worker: ", err)
 			}
 		} else {
-			go insertWorker.Start()
+			insertWorker.Start()
 			return insertWorker
 		}
 	}
@@ -88,5 +89,5 @@ func (insertWorker *InsertWorker) Start() {
 		insertWorker.LastId++
 		return nil
 	}
-	insertWorker.bencher.TrackOperations("insert", op)
+	insertWorker.OperationTracker = NewOperationTracker(insertWorker.bencher, "insert", op)
 }

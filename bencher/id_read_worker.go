@@ -11,14 +11,15 @@ import (
 )
 
 type IDReadWorker struct {
-	bencher *BencherInstance
+	bencher          *BencherInstance
+	OperationTracker *OperationTracker
 }
 
 func StartIDReadWorker(bencher *BencherInstance) *IDReadWorker {
 	worker := &IDReadWorker{
 		bencher: bencher,
 	}
-	go worker.Start()
+	worker.Start()
 	return worker
 }
 
@@ -42,5 +43,5 @@ func (worker *IDReadWorker) Start() {
 		insertWorker := worker.bencher.RandomInsertWorker()
 		return DoReadOp(worker.bencher.ctx, insertWorker, collection)
 	}
-	worker.bencher.TrackOperations("id_read", op)
+	worker.OperationTracker = NewOperationTracker(worker.bencher, "id_read", op)
 }

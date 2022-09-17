@@ -33,12 +33,12 @@ func tableRow(stats *StatResult, numWorkers int, statType string) []string {
 		}
 	}
 	p := message.NewPrinter(language.English)
-	return []string{statType, p.Sprintf("%d", perSecond), p.Sprintf("%d", avgSpeed), fmt.Sprint(groupedErrors)}
+	return []string{statType, p.Sprintf("%d", numWorkers), p.Sprintf("%d", perSecond), p.Sprintf("%d", avgSpeed), fmt.Sprint(groupedErrors)}
 }
 
 func (bencher *BencherInstance) StatWorker() {
-	tickTime := 200
-	ticker := time.NewTicker(time.Duration(tickTime) * time.Millisecond)
+	rewriteTickTime := 500
+	rewriteTicker := time.NewTicker(time.Duration(rewriteTickTime) * time.Millisecond)
 	stats := []*StatResult{}
 	area, err := pterm.DefaultArea.Start()
 	if err != nil {
@@ -52,8 +52,8 @@ func (bencher *BencherInstance) StatWorker() {
 		select {
 		case result := <-bencher.returnChannel:
 			stats = append(stats, result)
-		case <-ticker.C:
-			if time.Since(lastStatBlock).Seconds() > 10 {
+		case <-rewriteTicker.C:
+			if time.Since(lastStatBlock).Seconds() > 5 {
 				lastStatBlock = time.Now()
 				statMap = map[string]*StatResult{}
 				area.Stop()
@@ -77,14 +77,14 @@ func (bencher *BencherInstance) StatWorker() {
 			}
 			stats = []*StatResult{}
 			td := [][]string{
-				{"Operation", "Per Second", "Avg Speed (us)", "Errors"},
+				{"Operation", "# Goroutines", "Per Second", "Avg Speed (us)", "Errors"},
 			}
 			td = append(td, tableRow(statMap["insert"], *bencher.config.NumInsertWorkers, "Insert"))
+			td = append(td, tableRow(statMap["update"], *bencher.config.NumUpdateWorkers, "Updates"))
 			td = append(td, tableRow(statMap["id_read"], *bencher.config.NumIDReadWorkers, "Reads by _id"))
 			td = append(td, tableRow(statMap["secondary_node_id_read"], *bencher.config.NumSecondaryIDReadWorkers, "Secondary Reads"))
 			td = append(td, tableRow(statMap["aggregation"], *bencher.config.NumAggregationWorkers, "Aggregations"))
-			td = append(td, tableRow(statMap["update"], *bencher.config.NumUpdateWorkers, "Updates"))
-			boxedTable, _ := pterm.DefaultTable.WithHasHeader().WithData(td).WithBoxed().Srender()
+			boxedTable, _ := pterm.DefaultTable.WithHasHeader().WithData(td).WithBoxed().WithRightAlignment(true).Srender()
 			area.Update(boxedTable)
 		}
 	}

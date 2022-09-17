@@ -11,14 +11,15 @@ import (
 )
 
 type UpdateWorker struct {
-	bencher *BencherInstance
+	bencher          *BencherInstance
+	OperationTracker *OperationTracker
 }
 
 func StartUpdateWorker(bencher *BencherInstance) *UpdateWorker {
 	updateWorker := &UpdateWorker{
 		bencher: bencher,
 	}
-	go updateWorker.Start()
+	updateWorker.Start()
 	return updateWorker
 }
 
@@ -62,5 +63,5 @@ func (updateWorker *UpdateWorker) Start() {
 		// TODO error
 		return nil
 	}
-	updateWorker.bencher.TrackOperations("update", op)
+	updateWorker.OperationTracker = NewOperationTracker(updateWorker.bencher, "update", op)
 }
