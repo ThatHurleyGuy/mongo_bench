@@ -3,8 +3,6 @@ package bencher
 import (
 	"fmt"
 	"time"
-
-	"github.com/pterm/pterm"
 )
 
 type OperationTracker struct {
@@ -23,46 +21,65 @@ func NewOperationTracker(bencher *BencherInstance, opType string, fn MongoOp) *O
 		controlChannel: make(chan string),
 	}
 
-	tracker.StartBackgroundThread()
+	go tracker.ControlThread()
 
 	return tracker
 }
 
 func (tracker *OperationTracker) StartBackgroundThread() {
-	go tracker.BackgroundThread()
+	tracker.controlChannel <- "start"
 }
 
 func (tracker *OperationTracker) StopBackgroundThread() {
 	tracker.controlChannel <- "stop"
 }
 
-func (tracker *OperationTracker) BackgroundThread() {
+func (tracker *OperationTracker) ControlThread() {
+	backgroundControlChannel := make(chan string)
+	go tracker.BackgroundThread(backgroundControlChannel)
+	stopped := false
+	for {
+		select {
+		case message := <-tracker.controlChannel:
+			switch message {
+			case "stop":
+				if !stopped {
+					backgroundControlChannel <- "stop"
+					stopped = true
+				}
+			case "start":
+				if stopped {
+					go tracker.BackgroundThread(backgroundControlChannel)
+					stopped = false
+				}
+			}
+		}
+	}
+}
+func (tracker *OperationTracker) BackgroundThread(backgroundControlChannel chan string) {
 	ticker := time.NewTicker(time.Duration(*tracker.bencher.config.StatTickSpeedMillis) * time.Millisecond)
 	numOps := 0
 	totalTimeMicros := 0
 	errors := []string{}
+	lastTick := time.Now()
 
 	for {
 		select {
-		case <-tracker.controlChannel:
-			pterm.Printfln("Got shutdown for %s", tracker.OpType)
-			tracker.bencher.returnChannel <- &StatResult{
-				numOps:     numOps,
-				timeMicros: totalTimeMicros,
-				opType:     tracker.OpType,
-				errors:     errors,
-			}
+		case <-backgroundControlChannel:
 			return
 		case <-ticker.C:
+			elapsed := time.Since(lastTick)
 			tracker.bencher.returnChannel <- &StatResult{
-				numOps:     numOps,
-				timeMicros: totalTimeMicros,
-				opType:     tracker.OpType,
-				errors:     errors,
+				totalElapsedMs: int(elapsed.Milliseconds()),
+				numOps:         numOps,
+				timeMicros:     totalTimeMicros,
+				opType:         tracker.OpType,
+				errors:         errors,
 			}
 			numOps = 0
 			totalTimeMicros = 0
 			errors = []string{}
+			lastTick = time.Now()
 		default:
 			start := time.Now()
 			err := tracker.operation()

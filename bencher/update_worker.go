@@ -5,7 +5,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/pterm/pterm"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
 )
@@ -39,7 +38,6 @@ func (updateWorker *UpdateWorker) Start() {
 	op := func() error {
 		insertWorker := updateWorker.bencher.RandomInsertWorker()
 		if insertWorker.LastId == 0 {
-			pterm.Printfln("Waiting for insert worker to start before updating....")
 			time.Sleep(1 * time.Second)
 		} else {
 			newAmount := rand.Intn(10000)

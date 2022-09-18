@@ -58,16 +58,19 @@ type BencherInstance struct {
 	config               *Config
 	returnChannel        chan *StatResult
 	insertWorkers        []*InsertWorker
+	workerTracker        map[string][]*OperationTracker
 	PrimaryMongoClient   *mongo.Client
 	SecondaryMongoClient *mongo.Client
 	MetadataMongoClient  *mongo.Client
 }
 
 type StatResult struct {
-	numOps     int
-	timeMicros int
-	opType     string
-	errors     []string
+	numWorkers     int
+	totalElapsedMs int
+	numOps         int
+	timeMicros     int
+	opType         string
+	errors         []string
 }
 
 func NewBencher(ctx context.Context, config *Config) *BencherInstance {
@@ -268,22 +271,43 @@ func (bencher *BencherInstance) Start() {
 		}
 	}
 
+	bencher.workerTracker = map[string][]*OperationTracker{}
+	insertTrackers := []*OperationTracker{}
 	for i := 0; i < *bencher.config.NumInsertWorkers; i++ {
 		insertWorker := StartInsertWorker(bencher)
 		bencher.insertWorkers = append(bencher.insertWorkers, insertWorker)
+		insertTrackers = append(insertTrackers, insertWorker.OperationTracker)
 	}
+	bencher.workerTracker["insert"] = insertTrackers
+
+	readTrackers := []*OperationTracker{}
 	for i := 0; i < *bencher.config.NumIDReadWorkers; i++ {
-		StartIDReadWorker(bencher)
+		worker := StartIDReadWorker(bencher)
+		readTrackers = append(readTrackers, worker.OperationTracker)
 	}
+	bencher.workerTracker["id_read"] = readTrackers
+
+	secondaryReadTrackers := []*OperationTracker{}
 	for i := 0; i < *bencher.config.NumSecondaryIDReadWorkers; i++ {
-		StartSecondaryNodeIDReadWorker(bencher)
+		worker := StartSecondaryNodeIDReadWorker(bencher)
+		secondaryReadTrackers = append(secondaryReadTrackers, worker.OperationTracker)
 	}
+	bencher.workerTracker["secondary_node_id_read"] = secondaryReadTrackers
+
+	updateTrackers := []*OperationTracker{}
 	for i := 0; i < *bencher.config.NumUpdateWorkers; i++ {
-		StartUpdateWorker(bencher)
+		worker := StartUpdateWorker(bencher)
+		updateTrackers = append(updateTrackers, worker.OperationTracker)
 	}
+	bencher.workerTracker["update"] = updateTrackers
+
+	aggregationTrackers := []*OperationTracker{}
 	for i := 0; i < *bencher.config.NumAggregationWorkers; i++ {
-		StartAggregationWorker(bencher)
+		worker := StartAggregationWorker(bencher)
+		aggregationTrackers = append(aggregationTrackers, worker.OperationTracker)
 	}
+	bencher.workerTracker["aggregation"] = aggregationTrackers
+
 	go bencher.StatWorker()
 
 	time.Sleep(100 * time.Minute)

@@ -5,7 +5,6 @@ import (
 	"math/rand"
 	"time"
 
-	"github.com/pterm/pterm"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
 )
@@ -25,7 +24,6 @@ func StartIDReadWorker(bencher *BencherInstance) *IDReadWorker {
 
 func DoReadOp(ctx context.Context, insertWorker *InsertWorker, collection *mongo.Collection) error {
 	if insertWorker.LastId == 0 {
-		pterm.Printfln("Waiting for insert worker to start before reading....")
 		time.Sleep(1 * time.Second)
 	} else {
 		docId := rand.Intn(insertWorker.LastId) + 1 + (insertWorker.WorkerIndex * 100_000_000_000)
