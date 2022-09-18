@@ -56,9 +56,9 @@ type BencherInstance struct {
 
 	ctx                  context.Context
 	config               *Config
-	returnChannel        chan *StatResult
+	statChannel          chan *StatResult
 	insertWorkers        []*InsertWorker
-	workerTracker        map[string][]*OperationTracker
+	WorkerManager        *WorkerManager
 	PrimaryMongoClient   *mongo.Client
 	SecondaryMongoClient *mongo.Client
 	MetadataMongoClient  *mongo.Client
@@ -80,9 +80,11 @@ func NewBencher(ctx context.Context, config *Config) *BencherInstance {
 		IsPrimary:     false, // Assume false until inserted into metadata DB
 		ctx:           ctx,
 		config:        config,
-		returnChannel: inputChannel,
+		statChannel:   inputChannel,
 		insertWorkers: []*InsertWorker{},
 	}
+	manager := NewWorkerManager(bencher)
+	bencher.WorkerManager = manager
 	return bencher
 }
 
@@ -271,44 +273,14 @@ func (bencher *BencherInstance) Start() {
 		}
 	}
 
-	bencher.workerTracker = map[string][]*OperationTracker{}
-	insertTrackers := []*OperationTracker{}
-	for i := 0; i < *bencher.config.NumInsertWorkers; i++ {
-		insertWorker := StartInsertWorker(bencher)
-		bencher.insertWorkers = append(bencher.insertWorkers, insertWorker)
-		insertTrackers = append(insertTrackers, insertWorker.OperationTracker)
+	insertPool := &InsertWorkerPool{
+		bencher: bencher,
 	}
-	bencher.workerTracker["insert"] = insertTrackers
+	// TODO: Add other pools
+	bencher.WorkerManager.AddPool("insert", insertPool)
+	bencher.WorkerManager.Run()
 
-	readTrackers := []*OperationTracker{}
-	for i := 0; i < *bencher.config.NumIDReadWorkers; i++ {
-		worker := StartIDReadWorker(bencher)
-		readTrackers = append(readTrackers, worker.OperationTracker)
-	}
-	bencher.workerTracker["id_read"] = readTrackers
-
-	secondaryReadTrackers := []*OperationTracker{}
-	for i := 0; i < *bencher.config.NumSecondaryIDReadWorkers; i++ {
-		worker := StartSecondaryNodeIDReadWorker(bencher)
-		secondaryReadTrackers = append(secondaryReadTrackers, worker.OperationTracker)
-	}
-	bencher.workerTracker["secondary_node_id_read"] = secondaryReadTrackers
-
-	updateTrackers := []*OperationTracker{}
-	for i := 0; i < *bencher.config.NumUpdateWorkers; i++ {
-		worker := StartUpdateWorker(bencher)
-		updateTrackers = append(updateTrackers, worker.OperationTracker)
-	}
-	bencher.workerTracker["update"] = updateTrackers
-
-	aggregationTrackers := []*OperationTracker{}
-	for i := 0; i < *bencher.config.NumAggregationWorkers; i++ {
-		worker := StartAggregationWorker(bencher)
-		aggregationTrackers = append(aggregationTrackers, worker.OperationTracker)
-	}
-	bencher.workerTracker["aggregation"] = aggregationTrackers
-
-	go bencher.StatWorker()
+	// go bencher.StatWorker()
 
 	time.Sleep(100 * time.Minute)
 	pterm.Printfln("Benchmark has run its course, exiting...")

@@ -5,18 +5,29 @@ import (
 	"time"
 )
 
+type OperationPool interface {
+	// TODO: Does this need to be a pointer to preserve state?
+	Initialize() OperationWorker
+}
+
+type OperationWorker interface {
+	Perform() error
+	Save()
+}
+
 type OperationTracker struct {
 	bencher   *BencherInstance
 	operation MongoOp
+	worker    OperationWorker
 	OpType    string
 
 	controlChannel chan string
 }
 
-func NewOperationTracker(bencher *BencherInstance, opType string, fn MongoOp) *OperationTracker {
+func NewOperationTracker(bencher *BencherInstance, opType string, worker OperationWorker) *OperationTracker {
 	tracker := &OperationTracker{
 		bencher:        bencher,
-		operation:      fn,
+		worker:         worker,
 		OpType:         opType,
 		controlChannel: make(chan string),
 	}
@@ -57,7 +68,8 @@ func (tracker *OperationTracker) ControlThread() {
 	}
 }
 func (tracker *OperationTracker) BackgroundThread(backgroundControlChannel chan string) {
-	ticker := time.NewTicker(time.Duration(*tracker.bencher.config.StatTickSpeedMillis) * time.Millisecond)
+	// Report stats every 50ms
+	ticker := time.NewTicker(50 * time.Millisecond)
 	numOps := 0
 	totalTimeMicros := 0
 	errors := []string{}
@@ -69,10 +81,10 @@ func (tracker *OperationTracker) BackgroundThread(backgroundControlChannel chan 
 			return
 		case <-ticker.C:
 			elapsed := time.Since(lastTick)
-			tracker.bencher.returnChannel <- &StatResult{
+			tracker.bencher.WorkerManager.returnChannel <- &OperationWorkerStats{
 				totalElapsedMs: int(elapsed.Milliseconds()),
 				numOps:         numOps,
-				timeMicros:     totalTimeMicros,
+				latencyMicros:  totalTimeMicros,
 				opType:         tracker.OpType,
 				errors:         errors,
 			}
@@ -82,7 +94,7 @@ func (tracker *OperationTracker) BackgroundThread(backgroundControlChannel chan 
 			lastTick = time.Now()
 		default:
 			start := time.Now()
-			err := tracker.operation()
+			err := tracker.worker.Perform()
 			totalTimeMicros += int(time.Since(start).Microseconds())
 			if err != nil {
 				errors = append(errors, fmt.Sprint(err.Error()))

@@ -10,30 +10,37 @@ import (
 	"go.mongodb.org/mongo-driver/mongo"
 )
 
+type InsertWorkerPool struct {
+	bencher *BencherInstance
+}
+
 // Each worker will get a serial index to help ensure uniqueness across inserts
 type InsertWorker struct {
-	WorkerIndex int `bson:"workerIndex"`
-	LastId      int `bson:"lastId"`
+	WorkerIndex   int `bson:"workerIndex"`
+	LastId        int `bson:"lastId"`
+	CurrentOffset int `bson:"currentOffset"`
 
 	bencher          *BencherInstance
 	OperationTracker *OperationTracker
+	wg               sync.WaitGroup
 }
 
-func StartInsertWorker(bencher *BencherInstance) *InsertWorker {
-	workerCollection := bencher.InsertWorkerCollection()
+func (pool *InsertWorkerPool) Initialize() OperationWorker {
+	workerCollection := pool.bencher.InsertWorkerCollection()
 
+	worker := &InsertWorker{
+		LastId:  0,
+		bencher: pool.bencher,
+		wg:      sync.WaitGroup{},
+	}
 	for {
-		numWorkers, err := workerCollection.CountDocuments(bencher.ctx, bson.M{})
+		numWorkers, err := workerCollection.CountDocuments(pool.bencher.ctx, bson.M{})
 		if err != nil {
 			log.Fatal("Error getting insert workers: ", err)
 		}
 
-		insertWorker := &InsertWorker{
-			bencher:     bencher,
-			WorkerIndex: int(numWorkers) + 1,
-			LastId:      0,
-		}
-		_, err = workerCollection.InsertOne(bencher.ctx, &insertWorker)
+		worker.WorkerIndex = int(numWorkers) + 1
+		_, err = workerCollection.InsertOne(pool.bencher.ctx, &worker)
 		if err != nil {
 			if mongo.IsDuplicateKeyError(err) {
 				log.Printf("Duplicate insert worker id, sleeping a bit and trying again")
@@ -42,52 +49,45 @@ func StartInsertWorker(bencher *BencherInstance) *InsertWorker {
 			} else {
 				log.Fatal("Error inserting insert worker: ", err)
 			}
-		} else {
-			insertWorker.Start()
-			return insertWorker
 		}
+		worker.CurrentOffset = worker.WorkerIndex * 100_000_000_000
+		return worker
 	}
 }
 
-func (insertWorker *InsertWorker) insertIntoCollection(collection *mongo.Collection, txn *Transaction, wg *sync.WaitGroup) error {
-	defer wg.Done()
-	_, insertErr := collection.InsertOne(insertWorker.bencher.ctx, txn)
+func (worker *InsertWorker) insertIntoCollection(collection *mongo.Collection, txn *Transaction) error {
+	defer worker.wg.Done()
+	_, insertErr := collection.InsertOne(worker.bencher.ctx, txn)
 	if insertErr != nil {
 		return insertErr
 	}
 	return nil
 }
 
-func (insertWorker *InsertWorker) Start() {
-	primaryCollection := insertWorker.bencher.PrimaryCollection()
-	secondaryCollection := insertWorker.bencher.SecondaryCollection()
+func (worker *InsertWorker) Save() {
+}
 
-	workerIdOffset := insertWorker.WorkerIndex * 100_000_000_000
-	var wg sync.WaitGroup
-
-	op := func() error {
-		txn := Transaction{
-			ID:        int64(insertWorker.LastId + 1 + workerIdOffset),
-			Amount:    rand.Intn(10000),
-			Category:  RandomTransactionCategory(),
-			CreatedAt: time.Now(),
-		}
-		wg.Add(1)
-		err := insertWorker.insertIntoCollection(primaryCollection, &txn, &wg)
+func (worker *InsertWorker) Perform() error {
+	txn := Transaction{
+		ID:        int64(worker.LastId + 1 + worker.CurrentOffset),
+		Amount:    rand.Intn(10000),
+		Category:  RandomTransactionCategory(),
+		CreatedAt: time.Now(),
+	}
+	worker.wg.Add(1)
+	err := worker.insertIntoCollection(worker.bencher.PrimaryCollection(), &txn)
+	if err != nil {
+		return err
+	}
+	if worker.bencher.SecondaryCollection() != nil {
+		worker.wg.Add(1)
+		err := worker.insertIntoCollection(worker.bencher.SecondaryCollection(), &txn)
 		if err != nil {
 			return err
 		}
-		if secondaryCollection != nil {
-			wg.Add(1)
-			err := insertWorker.insertIntoCollection(secondaryCollection, &txn, &wg)
-			if err != nil {
-				return err
-			}
-		}
-		wg.Wait()
-
-		insertWorker.LastId++
-		return nil
 	}
-	insertWorker.OperationTracker = NewOperationTracker(insertWorker.bencher, "insert", op)
+	worker.wg.Wait()
+
+	worker.LastId++
+	return nil
 }

@@ -14,10 +14,10 @@ func StartSecondaryNodeIDReadWorker(bencher *BencherInstance) *SecondaryNodeIDRe
 }
 
 func (worker *SecondaryNodeIDReadWorker) Start() {
-	collection := worker.bencher.PrimaryCollectionSecondaryRead()
-	op := func() error {
-		insertWorker := worker.bencher.RandomInsertWorker()
-		return DoReadOp(worker.bencher.ctx, insertWorker, collection)
-	}
-	worker.OperationTracker = NewOperationTracker(worker.bencher, "secondary_node_id_read", op)
+	// collection := worker.bencher.PrimaryCollectionSecondaryRead()
+	// op := func() error {
+	// 	insertWorker := worker.bencher.RandomInsertWorker()
+	// 	return DoReadOp(worker.bencher.ctx, insertWorker, collection)
+	// }
+	// worker.OperationTracker = NewOperationTracker(worker.bencher, "secondary_node_id_read", op)
 }

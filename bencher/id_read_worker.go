@@ -36,10 +36,10 @@ func DoReadOp(ctx context.Context, insertWorker *InsertWorker, collection *mongo
 }
 
 func (worker *IDReadWorker) Start() {
-	collection := worker.bencher.PrimaryCollection()
-	op := func() error {
-		insertWorker := worker.bencher.RandomInsertWorker()
-		return DoReadOp(worker.bencher.ctx, insertWorker, collection)
-	}
-	worker.OperationTracker = NewOperationTracker(worker.bencher, "id_read", op)
+	// collection := worker.bencher.PrimaryCollection()
+	// op := func() error {
+	// 	insertWorker := worker.bencher.RandomInsertWorker()
+	// 	return DoReadOp(worker.bencher.ctx, insertWorker, collection)
+	// }
+	// worker.OperationTracker = NewOperationTracker(worker.bencher, "id_read", op)
 }
