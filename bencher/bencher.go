@@ -153,8 +153,14 @@ func (bencher *BencherInstance) BencherInstanceCollection() *mongo.Collection {
 }
 
 func (bencher *BencherInstance) RandomInsertWorker() *InsertWorker {
-	index := rand.Intn(len(bencher.insertWorkers))
-	return bencher.insertWorkers[index]
+	for {
+		if len(bencher.insertWorkers) == 0 {
+			time.Sleep(10 * time.Millisecond)
+		} else {
+			index := rand.Intn(len(bencher.insertWorkers))
+			return bencher.insertWorkers[index]
+		}
+	}
 }
 
 type MongoOp func() error
@@ -273,11 +279,16 @@ func (bencher *BencherInstance) Start() {
 		}
 	}
 
-	insertPool := &InsertWorkerPool{
-		bencher: bencher,
-	}
-	// TODO: Add other pools
+	insertPool := &InsertWorkerPool{bencher: bencher}
+	idReadPool := &IDReadWorkerPool{bencher: bencher}
+	secondaryIDReadPool := &SecondaryNodeIDReadWorkerPool{bencher: bencher}
+	updateWorkerPool := &UpdateWorkerPool{bencher: bencher}
+	aggregationPool := &AggregationWorkerPool{bencher: bencher}
 	bencher.WorkerManager.AddPool("insert", insertPool)
+	bencher.WorkerManager.AddPool("id_read", idReadPool)
+	bencher.WorkerManager.AddPool("secondary_node_id_read", secondaryIDReadPool)
+	bencher.WorkerManager.AddPool("update", updateWorkerPool)
+	bencher.WorkerManager.AddPool("aggregation", aggregationPool)
 	bencher.WorkerManager.Run()
 
 	// go bencher.StatWorker()

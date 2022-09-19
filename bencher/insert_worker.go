@@ -51,6 +51,7 @@ func (pool *InsertWorkerPool) Initialize() OperationWorker {
 			}
 		}
 		worker.CurrentOffset = worker.WorkerIndex * 100_000_000_000
+		worker.bencher.insertWorkers = append(worker.bencher.insertWorkers, worker)
 		return worker
 	}
 }
@@ -62,9 +63,6 @@ func (worker *InsertWorker) insertIntoCollection(collection *mongo.Collection, t
 		return insertErr
 	}
 	return nil
-}
-
-func (worker *InsertWorker) Save() {
 }
 
 func (worker *InsertWorker) Perform() error {

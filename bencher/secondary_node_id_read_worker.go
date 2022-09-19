@@ -1,23 +1,20 @@
 package bencher
 
+type SecondaryNodeIDReadWorkerPool struct {
+	bencher *BencherInstance
+}
+
 type SecondaryNodeIDReadWorker struct {
-	bencher          *BencherInstance
-	OperationTracker *OperationTracker
+	bencher *BencherInstance
 }
 
-func StartSecondaryNodeIDReadWorker(bencher *BencherInstance) *SecondaryNodeIDReadWorker {
-	worker := &SecondaryNodeIDReadWorker{
-		bencher: bencher,
+func (pool *SecondaryNodeIDReadWorkerPool) Initialize() OperationWorker {
+	return &SecondaryNodeIDReadWorker{
+		bencher: pool.bencher,
 	}
-	worker.Start()
-	return worker
 }
 
-func (worker *SecondaryNodeIDReadWorker) Start() {
-	// collection := worker.bencher.PrimaryCollectionSecondaryRead()
-	// op := func() error {
-	// 	insertWorker := worker.bencher.RandomInsertWorker()
-	// 	return DoReadOp(worker.bencher.ctx, insertWorker, collection)
-	// }
-	// worker.OperationTracker = NewOperationTracker(worker.bencher, "secondary_node_id_read", op)
+func (worker *SecondaryNodeIDReadWorker) Perform() error {
+	insertWorker := worker.bencher.RandomInsertWorker()
+	return DoReadOp(worker.bencher.ctx, insertWorker, worker.bencher.PrimaryCollectionSecondaryRead())
 }

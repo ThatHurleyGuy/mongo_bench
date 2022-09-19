@@ -3,6 +3,8 @@ package bencher
 import (
 	"fmt"
 	"log"
+	"sort"
+	"strings"
 	"time"
 
 	"github.com/pterm/pterm"
@@ -75,7 +77,7 @@ func tableRow(stats *OperationWorkerStats, numWorkers int, statType string) []st
 func (manager *WorkerManager) Run() {
 	go func() {
 		ticker := time.NewTicker(time.Duration(5000) * time.Millisecond)
-		redrawTicker := time.NewTicker(200 * time.Millisecond)
+		redrawTicker := time.NewTicker(500 * time.Millisecond)
 		for optype, count := range manager.workerCounts {
 			pool := manager.workerPools[optype]
 			for i := 0; i < count; i++ {
@@ -131,9 +133,15 @@ func (manager *WorkerManager) Run() {
 						})
 						td = append(td, tableRow(stats, numWorkers, optype))
 					}
+					sort.Slice(td, func(i, j int) bool {
+						if i == 0 {
+							return true
+						} else {
+							return strings.Compare(td[i][0], td[j][0]) < 0
+						}
+					})
 					boxedTable, _ := pterm.DefaultTable.WithHasHeader().WithData(td).WithBoxed().WithRightAlignment(true).Srender()
 					area.Update(boxedTable)
-					area.Stop()
 				}
 			}
 		}
@@ -145,7 +153,7 @@ func (manager *WorkerManager) calibrateWorkers() {
 		mostRecent := queue.MostRecent()
 		oldest := queue.Oldest()
 		ratio := 1.0
-		pterm.Printfln("Got %s ratio %f", optype, ratio)
+		// pterm.Printfln("Got %s ratio %f", optype, ratio)
 		if mostRecent != nil && oldest != nil {
 			oldrate := float64(oldest.numWorkers) * float64(oldest.numOps) / float64(oldest.totalElapsedMs)
 			newrate := float64(mostRecent.numWorkers) * float64(mostRecent.numOps) / float64(mostRecent.totalElapsedMs)
@@ -154,7 +162,9 @@ func (manager *WorkerManager) calibrateWorkers() {
 		trackers := manager.workerTracker[optype]
 		if ratio < 0.95 {
 			// Reduce workers
-			manager.workerCounts[optype]--
+			if manager.workerCounts[optype] > 1 {
+				manager.workerCounts[optype]--
+			}
 		} else {
 			manager.workerCounts[optype]++
 			if manager.workerCounts[optype] > len(trackers) {

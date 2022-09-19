@@ -10,16 +10,17 @@ import (
 )
 
 type IDReadWorker struct {
-	bencher          *BencherInstance
-	OperationTracker *OperationTracker
+	bencher *BencherInstance
 }
 
-func StartIDReadWorker(bencher *BencherInstance) *IDReadWorker {
-	worker := &IDReadWorker{
-		bencher: bencher,
+type IDReadWorkerPool struct {
+	bencher *BencherInstance
+}
+
+func (pool *IDReadWorkerPool) Initialize() OperationWorker {
+	return &IDReadWorker{
+		bencher: pool.bencher,
 	}
-	worker.Start()
-	return worker
 }
 
 func DoReadOp(ctx context.Context, insertWorker *InsertWorker, collection *mongo.Collection) error {
@@ -35,11 +36,8 @@ func DoReadOp(ctx context.Context, insertWorker *InsertWorker, collection *mongo
 	return nil
 }
 
-func (worker *IDReadWorker) Start() {
-	// collection := worker.bencher.PrimaryCollection()
-	// op := func() error {
-	// 	insertWorker := worker.bencher.RandomInsertWorker()
-	// 	return DoReadOp(worker.bencher.ctx, insertWorker, collection)
-	// }
-	// worker.OperationTracker = NewOperationTracker(worker.bencher, "id_read", op)
+func (worker *IDReadWorker) Perform() error {
+	collection := worker.bencher.PrimaryCollection()
+	insertWorker := worker.bencher.RandomInsertWorker()
+	return DoReadOp(worker.bencher.ctx, insertWorker, collection)
 }
