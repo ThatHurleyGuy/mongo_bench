@@ -21,7 +21,7 @@ func (pool *AggregationWorkerPool) Initialize() OperationWorker {
 }
 
 func (worker *AggregationWorker) Perform() error {
-	collection := worker.bencher.PrimaryCollection()
+	collection := worker.bencher.PrimaryCollectionSecondaryRead()
 	ago := time.Now().UTC().Add(-5 * time.Second)
 	matchStage := bson.M{
 		"$match": bson.M{

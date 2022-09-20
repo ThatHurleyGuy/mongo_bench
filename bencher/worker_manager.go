@@ -77,7 +77,7 @@ func tableRow(stats *OperationWorkerStats, numWorkers int, statType string) []st
 func (manager *WorkerManager) Run() {
 	go func() {
 		ticker := time.NewTicker(time.Duration(5000) * time.Millisecond)
-		redrawTicker := time.NewTicker(500 * time.Millisecond)
+		redrawTicker := time.NewTicker(200 * time.Millisecond)
 		for optype, count := range manager.workerCounts {
 			pool := manager.workerPools[optype]
 			for i := 0; i < count; i++ {
@@ -107,6 +107,7 @@ func (manager *WorkerManager) Run() {
 				if *manager.bencher.config.AutoScale {
 					manager.calibrateWorkers()
 				}
+				statMap = map[string]*OperationWorkerStats{}
 			case <-redrawTicker.C:
 				for _, v := range stats {
 					stat, ok := statMap[v.opType]
@@ -118,31 +119,31 @@ func (manager *WorkerManager) Run() {
 					} else {
 						statMap[v.opType] = v
 					}
-					stats = []*OperationWorkerStats{}
-					td := [][]string{
-						{"Operation", "# Goroutines", "Per Second", "Avg Speed (us)", "Errors"},
-					}
-					for optype, stats := range statMap {
-						numWorkers := manager.workerCounts[optype]
-						manager.workerStatQueues[optype].Add(&OperationWorkerStats{
-							numWorkers:     numWorkers,
-							totalElapsedMs: stats.totalElapsedMs,
-							numOps:         stats.numOps,
-							latencyMicros:  stats.latencyMicros,
-							errors:         stats.errors,
-						})
-						td = append(td, tableRow(stats, numWorkers, optype))
-					}
-					sort.Slice(td, func(i, j int) bool {
-						if i == 0 {
-							return true
-						} else {
-							return strings.Compare(td[i][0], td[j][0]) < 0
-						}
-					})
-					boxedTable, _ := pterm.DefaultTable.WithHasHeader().WithData(td).WithBoxed().WithRightAlignment(true).Srender()
-					area.Update(boxedTable)
 				}
+				stats = []*OperationWorkerStats{}
+				td := [][]string{
+					{"Operation", "# Goroutines", "Per Second", "Avg Latency (us)", "Errors"},
+				}
+				for optype, stats := range statMap {
+					numWorkers := manager.workerCounts[optype]
+					manager.workerStatQueues[optype].Add(&OperationWorkerStats{
+						numWorkers:     numWorkers,
+						totalElapsedMs: stats.totalElapsedMs,
+						numOps:         stats.numOps,
+						latencyMicros:  stats.latencyMicros,
+						errors:         stats.errors,
+					})
+					td = append(td, tableRow(stats, numWorkers, optype))
+				}
+				sort.Slice(td, func(i, j int) bool {
+					if i == 0 {
+						return true
+					} else {
+						return strings.Compare(td[i][0], td[j][0]) < 0
+					}
+				})
+				boxedTable, _ := pterm.DefaultTable.WithHasHeader().WithData(td).WithBoxed().WithRightAlignment(true).Srender()
+				area.Update(boxedTable)
 			}
 		}
 	}()
@@ -160,7 +161,7 @@ func (manager *WorkerManager) calibrateWorkers() {
 			ratio = newrate / oldrate
 		}
 		trackers := manager.workerTracker[optype]
-		if ratio < 0.95 {
+		if ratio < 1.05 {
 			// Reduce workers
 			if manager.workerCounts[optype] > 1 {
 				manager.workerCounts[optype]--
@@ -173,6 +174,9 @@ func (manager *WorkerManager) calibrateWorkers() {
 				trackers = append(trackers, tracker)
 			}
 			manager.workerTracker[optype] = trackers
+			if manager.workerCounts[optype] > 10 {
+				manager.workerCounts[optype] = 10
+			}
 		}
 		newCount := manager.workerCounts[optype]
 		for i := 0; i < len(trackers); i++ {
