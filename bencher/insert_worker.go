@@ -3,7 +3,6 @@ package bencher
 import (
 	"log"
 	"math/rand"
-	"sync"
 	"time"
 
 	"go.mongodb.org/mongo-driver/bson"
@@ -22,7 +21,6 @@ type InsertWorker struct {
 
 	bencher          *BencherInstance
 	OperationTracker *OperationTracker
-	wg               sync.WaitGroup
 }
 
 func (pool *InsertWorkerPool) Initialize() OperationWorker {
@@ -31,7 +29,6 @@ func (pool *InsertWorkerPool) Initialize() OperationWorker {
 	worker := &InsertWorker{
 		LastId:  0,
 		bencher: pool.bencher,
-		wg:      sync.WaitGroup{},
 	}
 	for {
 		numWorkers, err := workerCollection.CountDocuments(pool.bencher.ctx, bson.M{})
@@ -57,7 +54,6 @@ func (pool *InsertWorkerPool) Initialize() OperationWorker {
 }
 
 func (worker *InsertWorker) insertIntoCollection(collection *mongo.Collection, txn *Transaction) error {
-	defer worker.wg.Done()
 	_, insertErr := collection.InsertOne(worker.bencher.ctx, txn)
 	if insertErr != nil {
 		return insertErr
@@ -72,19 +68,16 @@ func (worker *InsertWorker) Perform() error {
 		Category:  RandomTransactionCategory(),
 		CreatedAt: time.Now(),
 	}
-	worker.wg.Add(1)
 	err := worker.insertIntoCollection(worker.bencher.PrimaryCollection(), &txn)
 	if err != nil {
 		return err
 	}
 	if worker.bencher.SecondaryCollection() != nil {
-		worker.wg.Add(1)
 		err := worker.insertIntoCollection(worker.bencher.SecondaryCollection(), &txn)
 		if err != nil {
 			return err
 		}
 	}
-	worker.wg.Wait()
 
 	worker.LastId++
 	return nil
