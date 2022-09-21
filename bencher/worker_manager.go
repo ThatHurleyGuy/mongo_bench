@@ -105,7 +105,7 @@ func (manager *WorkerManager) Run() {
 				}
 
 				if *manager.bencher.config.AutoScale {
-					manager.calibrateWorkers()
+					manager.scaleWorkers()
 				}
 				statMap = map[string]*OperationWorkerStats{}
 			case <-redrawTicker.C:
@@ -143,42 +143,61 @@ func (manager *WorkerManager) Run() {
 					}
 				})
 				boxedTable, _ := pterm.DefaultTable.WithHasHeader().WithData(td).WithBoxed().WithRightAlignment(true).Srender()
-				area.Update(boxedTable)
+				pterm.Print(boxedTable)
+				// area.Update(boxedTable)
 			}
 		}
 	}()
 }
 
-func (manager *WorkerManager) calibrateWorkers() {
+func (manager *WorkerManager) scaleWorkers() {
+	lastScaled := "insert"
+	nextScaled := "insert"
+	lastScaleBad := false
+	lastScaledQueue := manager.workerStatQueues[lastScaled]
+	mostRecent := lastScaledQueue.MostRecent()
+	oldest := lastScaledQueue.Oldest()
+
+	if mostRecent != nil && oldest != nil {
+		wasScaleUp := mostRecent.numWorkers > oldest.numWorkers
+		wasScaleDown := mostRecent.numWorkers < oldest.numWorkers
+
+		// If we scaled up and the number of queries did not grow with the rate of workers
+		for optype, queue := range manager.workerStatQueues {
+			otherOpMostRecent := queue.MostRecent()
+			otherOpOldest := queue.Oldest()
+			oldrate := float64(otherOpOldest.numWorkers) * float64(otherOpOldest.numOps) / float64(otherOpOldest.totalElapsedMs)
+			newrate := float64(otherOpMostRecent.numWorkers) * float64(otherOpMostRecent.numOps) / float64(otherOpMostRecent.totalElapsedMs)
+			ratio := newrate / oldrate
+			scaleRatio := float64(otherOpMostRecent.numWorkers) / float64(otherOpOldest.numWorkers)
+
+			pterm.Printfln("Scale up: %+v optype: %s ratio: %d scaleratio: %d", wasScaleUp, optype, ratio, scaleRatio)
+			if ratio < (0.5 * scaleRatio) {
+				lastScaleBad = true
+				pterm.Printfln("Last scale up made things worse for %s, scaling %s workers back down to %d", optype, lastScaled, mostRecent.numWorkers-1)
+				if wasScaleUp {
+					manager.workerCounts[lastScaled]--
+				} else if wasScaleDown {
+					manager.workerCounts[lastScaled]++
+				}
+				break
+			}
+		}
+	}
+
+	if !lastScaleBad {
+		manager.workerCounts[nextScaled]++
+	}
+
 	for optype, queue := range manager.workerStatQueues {
-		mostRecent := queue.MostRecent()
-		oldest := queue.Oldest()
-		ratio := 1.0
-		// pterm.Printfln("Got %s ratio %f", optype, ratio)
-		if mostRecent != nil && oldest != nil {
-			oldrate := float64(oldest.numWorkers) * float64(oldest.numOps) / float64(oldest.totalElapsedMs)
-			newrate := float64(mostRecent.numWorkers) * float64(mostRecent.numOps) / float64(mostRecent.totalElapsedMs)
-			ratio = newrate / oldrate
-		}
-		trackers := manager.workerTracker[optype]
-		if ratio < 1.05 {
-			// Reduce workers
-			if manager.workerCounts[optype] > 1 {
-				manager.workerCounts[optype]--
-			}
-		} else {
-			manager.workerCounts[optype]++
-			if manager.workerCounts[optype] > len(trackers) {
-				pool := manager.workerPools[optype]
-				tracker := NewOperationTracker(manager.bencher, optype, pool.Initialize())
-				trackers = append(trackers, tracker)
-			}
-			manager.workerTracker[optype] = trackers
-			if manager.workerCounts[optype] > 10 {
-				manager.workerCounts[optype] = 10
-			}
-		}
 		newCount := manager.workerCounts[optype]
+		trackers := manager.workerTracker[optype]
+		if manager.workerCounts[optype] > len(trackers) {
+			pool := manager.workerPools[optype]
+			tracker := NewOperationTracker(manager.bencher, optype, pool.Initialize())
+			trackers = append(trackers, tracker)
+		}
+		manager.workerTracker[optype] = trackers
 		for i := 0; i < len(trackers); i++ {
 			if newCount > 0 {
 				if i >= newCount {
