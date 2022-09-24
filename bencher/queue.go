@@ -1,21 +1,34 @@
 package bencher
 
 type FifoQueue struct {
-	oldest     *OperationWorkerStats
-	mostrecent *OperationWorkerStats
+	MaxSize int
+	stats   []*OperationWorkerStats
 }
 
-func (q *FifoQueue) Clear() {
-	q.oldest = q.mostrecent
-	q.mostrecent = nil
+func NewQueue() *FifoQueue {
+	return &FifoQueue{
+		MaxSize: 10,
+		stats:   []*OperationWorkerStats{},
+	}
 }
+
+func (q *FifoQueue) All() []*OperationWorkerStats {
+	return q.stats
+}
+
 func (q *FifoQueue) Add(item *OperationWorkerStats) {
-	q.mostrecent = item
+	if len(q.stats) >= q.MaxSize {
+		q.stats = q.stats[1:]
+	}
+	q.stats = append(q.stats, item)
 }
 
 func (q *FifoQueue) Oldest() *OperationWorkerStats {
-	return q.oldest
+	return q.stats[0]
 }
 func (q *FifoQueue) MostRecent() *OperationWorkerStats {
-	return q.mostrecent
+	if len(q.stats) == 0 {
+		return nil
+	}
+	return q.stats[len(q.stats)-1]
 }

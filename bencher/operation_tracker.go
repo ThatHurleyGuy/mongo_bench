@@ -56,7 +56,6 @@ func (tracker *OperationTracker) StopBackgroundThread() {
 
 func (tracker *OperationTracker) StatThread() {
 	ticker := time.NewTicker(100 * time.Millisecond)
-	lastTick := time.Now()
 	numOps := 0
 	latencyTimeMicros := 0
 	errors := []string{}
@@ -70,18 +69,15 @@ func (tracker *OperationTracker) StatThread() {
 				errors = append(errors, fmt.Sprint(result.err.Error()))
 			}
 		case <-ticker.C:
-			elapsed := time.Since(lastTick)
 			tracker.bencher.WorkerManager.returnChannel <- &OperationWorkerStats{
-				totalElapsedMs: int(elapsed.Milliseconds()),
-				numOps:         numOps,
-				latencyMicros:  latencyTimeMicros,
-				opType:         tracker.OpType,
-				errors:         errors,
+				numOps:        numOps,
+				latencyMicros: latencyTimeMicros,
+				opType:        tracker.OpType,
+				errors:        errors,
 			}
 			numOps = 0
 			latencyTimeMicros = 0
 			errors = []string{}
-			lastTick = time.Now()
 		}
 	}
 }
