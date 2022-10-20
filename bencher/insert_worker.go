@@ -69,6 +69,7 @@ func (insertWorker *InsertWorker) Start() {
 			ID:        int64(insertWorker.LastId + 1 + workerIdOffset),
 			Amount:    rand.Intn(10000),
 			Category:  RandomTransactionCategory(),
+			Meta:      insertWorker.bencher.RandomString(),
 			CreatedAt: time.Now(),
 		}
 		wg.Add(1)

@@ -1,8 +1,0 @@
-{
-  "Clusters": {
-    "/tmp/mongo1.sock": {
-      "DualReadFrom": "/tmp/mongo2.sock",
-      "DualReadSamplePercent": 100
-    }
-  }
-}

@@ -34,6 +34,7 @@ type Transaction struct {
 	ID        int64     `bson:"_id,omitempty"`
 	Amount    int       `bson:"amount,omitempty"`
 	Category  string    `bson:"category,omitempty"`
+	Meta      string    `bson:"meta,omitempty"`
 	CreatedAt time.Time `json:"createdAt"`
 }
 
@@ -61,6 +62,7 @@ type BencherInstance struct {
 	PrimaryMongoClient   *mongo.Client
 	SecondaryMongoClient *mongo.Client
 	MetadataMongoClient  *mongo.Client
+	RandomStrings        []string
 }
 
 type StatResult struct {
@@ -79,6 +81,7 @@ func NewBencher(ctx context.Context, config *Config) *BencherInstance {
 		config:        config,
 		returnChannel: inputChannel,
 		insertWorkers: []*InsertWorker{},
+		RandomStrings: []string{},
 	}
 	return bencher
 }
@@ -194,6 +197,14 @@ func (bencher *BencherInstance) SetupDB(client *mongo.Client) error {
 		if err != nil {
 			return err
 		}
+
+		index = mongo.IndexModel{
+			Keys: bson.D{{Key: "_id", Value: "hashed"}},
+		}
+		_, err = client.Database(BenchDatabase).Collection(BenchCollection).Indexes().CreateOne(bencher.ctx, index)
+		if err != nil {
+			return err
+		}
 	}
 	return nil
 }
@@ -268,9 +279,27 @@ func (bencher *BencherInstance) Reset() {
 	}
 }
 
+var letterRunes = []rune("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ")
+
+func RandStringRunes(n int) string {
+	b := make([]rune, n)
+	for i := range b {
+		b[i] = letterRunes[rand.Intn(len(letterRunes))]
+	}
+	return string(b)
+}
+
+func (bencher *BencherInstance) RandomString() string {
+	return bencher.RandomStrings[rand.Intn(len(bencher.RandomStrings))]
+}
+
 func (bencher *BencherInstance) Start() {
 	defer bencher.Close()
 	var err error
+
+	for i := 0; i < 1000; i++ {
+		bencher.RandomStrings = append(bencher.RandomStrings, RandStringRunes(1024))
+	}
 
 	if *bencher.config.Reset {
 		bencher.Reset()
