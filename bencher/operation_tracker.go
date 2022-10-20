@@ -6,7 +6,6 @@ import (
 )
 
 type OperationPool interface {
-	// TODO: Does this need to be a pointer to preserve state?
 	Initialize() OperationWorker
 }
 
