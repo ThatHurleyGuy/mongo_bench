@@ -11,6 +11,7 @@ type OperationPool interface {
 
 type OperationWorker interface {
 	Perform() error
+	Save()
 }
 
 type OpResult struct {

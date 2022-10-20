@@ -5,6 +5,7 @@ import (
 	"math/rand"
 	"time"
 
+	"github.com/pterm/pterm"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
 )
@@ -53,6 +54,11 @@ func (pool *InsertWorkerPool) Initialize() OperationWorker {
 	}
 }
 
+func RandomTransactionCategory() string {
+	index := rand.Intn(len(TransactionCategories))
+	return TransactionCategories[index]
+}
+
 func (worker *InsertWorker) insertIntoCollection(collection *mongo.Collection, txn *Transaction) error {
 	_, insertErr := collection.InsertOne(worker.bencher.ctx, txn)
 	if insertErr != nil {
@@ -81,4 +87,13 @@ func (worker *InsertWorker) Perform() error {
 
 	worker.LastId++
 	return nil
+}
+
+func (worker *InsertWorker) Save() {
+	pterm.Printfln("Saving insert worker")
+	workerCollection := worker.bencher.InsertWorkerCollection()
+	_, err := workerCollection.UpdateOne(worker.bencher.ctx, bson.M{"WorkerIndex": worker.WorkerIndex}, worker)
+	if err != nil {
+		pterm.Printfln("Failed to update insert worker")
+	}
 }

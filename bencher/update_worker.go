@@ -52,3 +52,6 @@ func (worker *UpdateWorker) Perform() error {
 	}
 	return nil
 }
+
+func (worker *UpdateWorker) Save() {
+}

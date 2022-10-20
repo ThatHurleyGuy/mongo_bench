@@ -116,6 +116,12 @@ func (manager *WorkerManager) Run() {
 				if err != nil {
 					log.Fatal("Error setting up output area: ", err)
 				}
+
+				for _, v := range manager.workerTracker {
+					for _, ot := range v {
+						ot.worker.Save()
+					}
+				}
 			case <-redrawTicker.C:
 				elapsed := time.Since(lastTick)
 
@@ -170,7 +176,30 @@ func (manager *WorkerManager) Run() {
 				boxedTable, _ := pterm.DefaultTable.WithHasHeader().WithData(td).WithBoxed().WithRightAlignment(true).Srender()
 				area.Update(boxedTable)
 				lastTick = time.Now()
+				manager.ensureWorkerCount()
 			}
 		}
 	}()
+}
+
+func (manager *WorkerManager) ensureWorkerCount() {
+	for optype := range manager.workerCounts {
+		newCount := manager.workerCounts[optype]
+		trackers := manager.workerTracker[optype]
+		if manager.workerCounts[optype] > len(trackers) {
+			pool := manager.workerPools[optype]
+			tracker := NewOperationTracker(manager.bencher, optype, pool.Initialize())
+			trackers = append(trackers, tracker)
+		}
+		manager.workerTracker[optype] = trackers
+		for i := 0; i < len(trackers); i++ {
+			if newCount > 0 {
+				if i >= newCount {
+					trackers[i].StopBackgroundThread()
+				} else {
+					trackers[i].StartBackgroundThread()
+				}
+			}
+		}
+	}
 }

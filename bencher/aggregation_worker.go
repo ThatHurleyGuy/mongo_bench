@@ -46,3 +46,6 @@ func (worker *AggregationWorker) Perform() error {
 	}
 	return nil
 }
+
+func (worker *AggregationWorker) Save() {
+}

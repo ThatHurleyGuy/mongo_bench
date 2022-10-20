@@ -24,11 +24,6 @@ var (
 	BenchCollection            = "transactions"
 )
 
-func RandomTransactionCategory() string {
-	index := rand.Intn(len(TransactionCategories))
-	return TransactionCategories[index]
-}
-
 type Transaction struct {
 	ID        int64     `bson:"_id,omitempty"`
 	Amount    int       `bson:"amount,omitempty"`

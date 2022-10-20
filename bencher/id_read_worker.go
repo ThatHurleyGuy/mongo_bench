@@ -41,3 +41,6 @@ func (worker *IDReadWorker) Perform() error {
 	insertWorker := worker.bencher.RandomInsertWorker()
 	return DoReadOp(worker.bencher.ctx, insertWorker, collection)
 }
+
+func (worker *IDReadWorker) Save() {
+}

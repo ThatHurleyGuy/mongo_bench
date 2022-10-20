@@ -18,3 +18,6 @@ func (worker *SecondaryNodeIDReadWorker) Perform() error {
 	insertWorker := worker.bencher.RandomInsertWorker()
 	return DoReadOp(worker.bencher.ctx, insertWorker, worker.bencher.PrimaryCollectionSecondaryRead())
 }
+
+func (worker *SecondaryNodeIDReadWorker) Save() {
+}
