@@ -77,7 +77,7 @@ func (bencher *BencherInstance) StatWorker() {
 			}
 			stats = []*StatResult{}
 			td := [][]string{
-				{"Operation", "Per Second", "Avg Speed (us)", "Errors"},
+				{"Operation", "Per Second", "Avg Latency (us)", "Errors"},
 			}
 			td = append(td, tableRow(statMap["insert"], *bencher.config.NumInsertWorkers, "Insert"))
 			td = append(td, tableRow(statMap["id_read"], *bencher.config.NumIDReadWorkers, "Reads by _id"))
