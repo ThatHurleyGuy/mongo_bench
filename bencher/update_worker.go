@@ -50,6 +50,5 @@ func (worker *UpdateWorker) Perform() error {
 			}
 		}
 	}
-	// TODO error
 	return nil
 }

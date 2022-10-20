@@ -36,7 +36,6 @@ func (worker *AggregationWorker) Perform() error {
 			},
 		},
 	}
-	// pipeline := mongo.Pipeline{matchStage, groupStage}
 	cursor, err := collection.Aggregate(worker.bencher.ctx, []bson.M{matchStage, groupStage})
 	if err != nil {
 		return err

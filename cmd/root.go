@@ -8,7 +8,6 @@ import (
 	"github.com/thathurleyguy/mongo_bench/bencher"
 )
 
-// rootCmd represents the base command when called without any subcommands
 var (
 	config bencher.Config
 

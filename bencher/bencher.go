@@ -55,7 +55,6 @@ type BencherInstance struct {
 
 	ctx                  context.Context
 	config               *Config
-	statChannel          chan *StatResult
 	insertWorkers        []*InsertWorker
 	WorkerManager        *WorkerManager
 	PrimaryMongoClient   *mongo.Client
@@ -63,23 +62,12 @@ type BencherInstance struct {
 	MetadataMongoClient  *mongo.Client
 }
 
-type StatResult struct {
-	numWorkers     int
-	totalElapsedMs int
-	numOps         int
-	timeMicros     int
-	opType         string
-	errors         []string
-}
-
 func NewBencher(ctx context.Context, config *Config) *BencherInstance {
-	inputChannel := make(chan *StatResult)
 	bencher := &BencherInstance{
 		ID:            primitive.NewObjectID(),
 		IsPrimary:     false, // Assume false until inserted into metadata DB
 		ctx:           ctx,
 		config:        config,
-		statChannel:   inputChannel,
 		insertWorkers: []*InsertWorker{},
 	}
 	manager := NewWorkerManager(bencher)
@@ -104,13 +92,11 @@ func (bencher *BencherInstance) SecondaryCollection() *mongo.Collection {
 }
 
 func (bencher *BencherInstance) makeClient(uri string) *mongo.Client {
-	// Force majority write concerns to ensure secondary reads work more consistently
 	connectionString := options.Client().ApplyURI(uri)
 	connectionString.SetWriteConcern(writeconcern.New(writeconcern.WMajority()))
 	connectionString.SetSocketTimeout(5000 * time.Millisecond)
 	connectionString.SetConnectTimeout(5000 * time.Millisecond)
 	connectionString.SetServerSelectionTimeout(5000 * time.Millisecond)
-	// connectionString := options.Client().ApplyURI(uri).SetWriteConcern(writeconcern.New(writeconcern.W(1)))
 	client, err := mongo.NewClient(connectionString)
 	if err != nil {
 		log.Fatal(err)
@@ -289,8 +275,6 @@ func (bencher *BencherInstance) Start() {
 	bencher.WorkerManager.AddPool("update", updateWorkerPool)
 	bencher.WorkerManager.AddPool("aggregation", aggregationPool)
 	bencher.WorkerManager.Run()
-
-	// go bencher.StatWorker()
 
 	time.Sleep(100 * time.Minute)
 	pterm.Printfln("Benchmark has run its course, exiting...")

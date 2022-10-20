@@ -71,7 +71,6 @@ func tableRow(stats *OperationWorkerStats, statType string) []string {
 		avgSpeed = stats.latencyMicros / stats.numOps
 	}
 	if stats.totalElapsedMs > 0 {
-		// TODO: This seems like it's only ever increasing with number of workers and always increases
 		perSecond = int(1000 * float64(stats.numOps) / float64(float64(stats.totalElapsedMs)))
 	}
 	groupedErrors := map[string]int{}
