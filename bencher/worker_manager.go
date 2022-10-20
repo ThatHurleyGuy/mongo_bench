@@ -35,14 +35,12 @@ func (o *OperationWorkerStats) Copy() *OperationWorkerStats {
 }
 
 type WorkerManager struct {
-	bencher                      *BencherInstance
-	workerTracker                map[string][]*OperationTracker
-	lastCalibrationWorkerStats   map[string]*OperationWorkerStats
-	recentCalibrationWorkerStats map[string]*OperationWorkerStats
-	rollingStatWindow            map[string]*FifoQueue
-	workerPools                  map[string]OperationPool
-	workerCounts                 map[string]int
-	returnChannel                chan *OperationWorkerStats
+	bencher           *BencherInstance
+	workerTracker     map[string][]*OperationTracker
+	rollingStatWindow map[string]*FifoQueue
+	workerPools       map[string]OperationPool
+	workerCounts      map[string]int
+	returnChannel     chan *OperationWorkerStats
 }
 
 func (manager *WorkerManager) AddPool(optype string, pool OperationPool) {
@@ -53,14 +51,12 @@ func (manager *WorkerManager) AddPool(optype string, pool OperationPool) {
 
 func NewWorkerManager(bencher *BencherInstance) *WorkerManager {
 	return &WorkerManager{
-		bencher:                      bencher,
-		workerTracker:                make(map[string][]*OperationTracker),
-		lastCalibrationWorkerStats:   make(map[string]*OperationWorkerStats),
-		recentCalibrationWorkerStats: make(map[string]*OperationWorkerStats),
-		rollingStatWindow:            make(map[string]*FifoQueue),
-		workerPools:                  make(map[string]OperationPool),
-		workerCounts:                 make(map[string]int),
-		returnChannel:                make(chan *OperationWorkerStats),
+		bencher:           bencher,
+		workerTracker:     make(map[string][]*OperationTracker),
+		rollingStatWindow: make(map[string]*FifoQueue),
+		workerPools:       make(map[string]OperationPool),
+		workerCounts:      make(map[string]int),
+		returnChannel:     make(chan *OperationWorkerStats),
 	}
 }
 
@@ -117,10 +113,6 @@ func (manager *WorkerManager) Run() {
 				area.Stop()
 				pterm.Printfln("Time: %+v", time.Now())
 
-				if *manager.bencher.config.AutoScale {
-					manager.scaleWorkers()
-				}
-
 				area, err = pterm.DefaultArea.Start()
 				if err != nil {
 					log.Fatal("Error setting up output area: ", err)
@@ -146,7 +138,6 @@ func (manager *WorkerManager) Run() {
 					numWorkers := manager.workerCounts[optype]
 					statWindow := stats.Copy()
 					statWindow.numWorkers = numWorkers
-					manager.recentCalibrationWorkerStats[optype] = statWindow
 					manager.rollingStatWindow[optype].Add(statWindow)
 				}
 
@@ -183,63 +174,4 @@ func (manager *WorkerManager) Run() {
 			}
 		}
 	}()
-}
-
-func (manager *WorkerManager) scaleWorkers() {
-	lastScaled := "insert"
-	nextScaled := "insert"
-	lastScaleBad := false
-	mostRecent := manager.recentCalibrationWorkerStats[lastScaled]
-	oldest := manager.lastCalibrationWorkerStats[lastScaled]
-
-	if mostRecent != nil && oldest != nil {
-		wasScaleUp := mostRecent.numWorkers > oldest.numWorkers
-		wasScaleDown := mostRecent.numWorkers < oldest.numWorkers
-
-		// If we scaled up and the number of queries did not grow with the rate of workers
-		for optype, otherOpOldest := range manager.lastCalibrationWorkerStats {
-			otherOpMostRecent := manager.recentCalibrationWorkerStats[optype]
-			oldrate := float64(otherOpOldest.numOps) / float64(otherOpOldest.totalElapsedMs)
-			newrate := float64(otherOpMostRecent.numOps) / float64(otherOpMostRecent.totalElapsedMs)
-			ratio := newrate / oldrate
-			scaleRatio := float64(otherOpMostRecent.numWorkers) / float64(otherOpOldest.numWorkers)
-
-			pterm.Printfln("Scale up: %+v optype: %s ratio: %d scaleratio: %d", wasScaleUp, optype, ratio, scaleRatio)
-			if ratio < (0.5 * scaleRatio) {
-				lastScaleBad = true
-				pterm.Printfln("Last scale up made things worse for %s, scaling %s workers back down to %d", optype, lastScaled, mostRecent.numWorkers-1)
-				if wasScaleUp {
-					manager.workerCounts[lastScaled]--
-				} else if wasScaleDown {
-					manager.workerCounts[lastScaled]++
-				}
-				break
-			}
-		}
-	}
-
-	if !lastScaleBad {
-		manager.workerCounts[nextScaled]++
-	}
-
-	for optype := range manager.workerCounts {
-		newCount := manager.workerCounts[optype]
-		trackers := manager.workerTracker[optype]
-		if manager.workerCounts[optype] > len(trackers) {
-			pool := manager.workerPools[optype]
-			tracker := NewOperationTracker(manager.bencher, optype, pool.Initialize())
-			trackers = append(trackers, tracker)
-		}
-		manager.workerTracker[optype] = trackers
-		for i := 0; i < len(trackers); i++ {
-			if newCount > 0 {
-				if i >= newCount {
-					trackers[i].StopBackgroundThread()
-				} else {
-					trackers[i].StartBackgroundThread()
-				}
-			}
-		}
-		manager.lastCalibrationWorkerStats[optype] = manager.recentCalibrationWorkerStats[optype]
-	}
 }

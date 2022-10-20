@@ -37,7 +37,6 @@ type Transaction struct {
 }
 
 type Config struct {
-	AutoScale                 *bool
 	PrimaryURI                *string
 	SecondaryURI              *string
 	MetadataURI               *string

@@ -39,7 +39,6 @@ func Execute() {
 
 func init() {
 	config = bencher.Config{}
-	config.AutoScale = rootCmd.Flags().Bool("auto-scale", false, "Automatically optimize number of goroutines")
 	config.NumInsertWorkers = rootCmd.Flags().Int("insert-workers", 1, "Number of insert worker goroutines to run")
 	config.NumIDReadWorkers = rootCmd.Flags().Int("id-read-workers", 1, "Number of id read worker goroutines to run")
 	config.NumSecondaryIDReadWorkers = rootCmd.Flags().Int("secondary-id-read-workers", 1, "Number of secondary id read worker goroutines to run")
