@@ -50,7 +50,7 @@ type BencherInstance struct {
 
 	ctx                  context.Context
 	config               *Config
-	insertWorkers        []*InsertWorker
+	allInsertWorkers     []*InsertWorker
 	WorkerManager        *WorkerManager
 	PrimaryMongoClient   *mongo.Client
 	SecondaryMongoClient *mongo.Client
@@ -59,11 +59,11 @@ type BencherInstance struct {
 
 func NewBencher(ctx context.Context, config *Config) *BencherInstance {
 	bencher := &BencherInstance{
-		ID:            primitive.NewObjectID(),
-		IsPrimary:     false, // Assume false until inserted into metadata DB
-		ctx:           ctx,
-		config:        config,
-		insertWorkers: []*InsertWorker{},
+		ID:               primitive.NewObjectID(),
+		IsPrimary:        false, // Assume false until inserted into metadata DB
+		ctx:              ctx,
+		config:           config,
+		allInsertWorkers: []*InsertWorker{},
 	}
 	manager := NewWorkerManager(bencher)
 	bencher.WorkerManager = manager
@@ -134,11 +134,11 @@ func (bencher *BencherInstance) BencherInstanceCollection() *mongo.Collection {
 
 func (bencher *BencherInstance) RandomInsertWorker() *InsertWorker {
 	for {
-		if len(bencher.insertWorkers) == 0 {
+		if len(bencher.allInsertWorkers) == 0 {
 			time.Sleep(10 * time.Millisecond)
 		} else {
-			index := rand.Intn(len(bencher.insertWorkers))
-			return bencher.insertWorkers[index]
+			index := rand.Intn(len(bencher.allInsertWorkers))
+			return bencher.allInsertWorkers[index]
 		}
 	}
 }
@@ -264,11 +264,11 @@ func (bencher *BencherInstance) Start() {
 	secondaryIDReadPool := &SecondaryNodeIDReadWorkerPool{bencher: bencher}
 	updateWorkerPool := &UpdateWorkerPool{bencher: bencher}
 	aggregationPool := &AggregationWorkerPool{bencher: bencher}
-	bencher.WorkerManager.AddPool("insert", insertPool)
-	bencher.WorkerManager.AddPool("id_read", idReadPool)
-	bencher.WorkerManager.AddPool("secondary_node_id_read", secondaryIDReadPool)
-	bencher.WorkerManager.AddPool("update", updateWorkerPool)
-	bencher.WorkerManager.AddPool("aggregation", aggregationPool)
+	bencher.WorkerManager.AddPool("insert", *bencher.config.NumInsertWorkers, insertPool)
+	bencher.WorkerManager.AddPool("id_read", *bencher.config.NumIDReadWorkers, idReadPool)
+	bencher.WorkerManager.AddPool("secondary_node_id_read", *bencher.config.NumSecondaryIDReadWorkers, secondaryIDReadPool)
+	bencher.WorkerManager.AddPool("update", *bencher.config.NumUpdateWorkers, updateWorkerPool)
+	bencher.WorkerManager.AddPool("aggregation", *bencher.config.NumAggregationWorkers, aggregationPool)
 	bencher.WorkerManager.Run()
 
 	time.Sleep(100 * time.Minute)

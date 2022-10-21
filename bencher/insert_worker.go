@@ -49,7 +49,7 @@ func (pool *InsertWorkerPool) Initialize() OperationWorker {
 			}
 		}
 		worker.CurrentOffset = worker.WorkerIndex * 100_000_000_000
-		worker.bencher.insertWorkers = append(worker.bencher.insertWorkers, worker)
+		worker.bencher.allInsertWorkers = append(worker.bencher.allInsertWorkers, worker)
 		return worker
 	}
 }
@@ -90,9 +90,8 @@ func (worker *InsertWorker) Perform() error {
 }
 
 func (worker *InsertWorker) Save() {
-	pterm.Printfln("Saving insert worker")
 	workerCollection := worker.bencher.InsertWorkerCollection()
-	_, err := workerCollection.UpdateOne(worker.bencher.ctx, bson.M{"WorkerIndex": worker.WorkerIndex}, worker)
+	_, err := workerCollection.UpdateOne(worker.bencher.ctx, bson.M{"workerIndex": worker.WorkerIndex}, bson.M{"$set": bson.M{"lastId": worker.LastId}})
 	if err != nil {
 		pterm.Printfln("Failed to update insert worker")
 	}

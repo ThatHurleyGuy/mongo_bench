@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/pterm/pterm"
+	"go.mongodb.org/mongo-driver/bson"
 	"golang.org/x/text/language"
 	"golang.org/x/text/message"
 )
@@ -43,9 +44,13 @@ type WorkerManager struct {
 	returnChannel     chan *OperationWorkerStats
 }
 
-func (manager *WorkerManager) AddPool(optype string, pool OperationPool) {
+func (manager *WorkerManager) SetNumWorkers(numWorkers int, workerType string) {
+	manager.workerCounts[workerType] = numWorkers
+}
+
+func (manager *WorkerManager) AddPool(optype string, numWorkers int, pool OperationPool) {
 	manager.workerPools[optype] = pool
-	manager.workerCounts[optype] = 1
+	manager.workerCounts[optype] = numWorkers
 	manager.rollingStatWindow[optype] = NewQueue()
 }
 
@@ -92,10 +97,13 @@ func (manager *WorkerManager) Run() {
 		redrawTicker := time.NewTicker(500 * time.Millisecond)
 		for optype, count := range manager.workerCounts {
 			pool := manager.workerPools[optype]
+			trackers := []*OperationTracker{}
 			for i := 0; i < count; i++ {
+				pterm.Println("Starting %s worker", optype)
 				tracker := NewOperationTracker(manager.bencher, optype, pool.Initialize())
-				manager.workerTracker[optype] = []*OperationTracker{tracker}
+				trackers = append(trackers, tracker)
 			}
+			manager.workerTracker[optype] = trackers
 		}
 		lastTick := time.Now()
 
@@ -109,6 +117,18 @@ func (manager *WorkerManager) Run() {
 			case workerStats := <-manager.returnChannel:
 				stats = append(stats, workerStats)
 			case <-ticker.C:
+				cursor, err := manager.bencher.InsertWorkerCollection().Find(manager.bencher.ctx, bson.M{})
+				if err != nil {
+					pterm.Printfln("Error refreshing insert workers %+v", err)
+				}
+				insertWorkers := []*InsertWorker{}
+				err = cursor.All(manager.bencher.ctx, &insertWorkers)
+				if err != nil {
+					pterm.Printfln("Error parsing insert workers %+v", err)
+				}
+				manager.bencher.allInsertWorkers = insertWorkers
+				pterm.Printfln("Found %d total insert workers", len(manager.bencher.allInsertWorkers))
+
 				area.Stop()
 				pterm.Printfln("Time: %+v", time.Now())
 
