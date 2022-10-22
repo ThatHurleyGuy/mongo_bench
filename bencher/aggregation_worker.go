@@ -25,7 +25,7 @@ func (worker *AggregationWorker) Perform() error {
 	ago := time.Now().UTC().Add(-5 * time.Second)
 	matchStage := bson.M{
 		"$match": bson.M{
-			"createdat": bson.M{"$gte": ago},
+			"created_at": bson.M{"$gte": ago},
 		},
 	}
 	groupStage := bson.M{

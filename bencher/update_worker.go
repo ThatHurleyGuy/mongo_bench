@@ -36,8 +36,9 @@ func (worker *UpdateWorker) Perform() error {
 		time.Sleep(1 * time.Second)
 	} else {
 		newAmount := rand.Intn(10000)
-		docId := insertWorker.LastId + 1 + (insertWorker.WorkerIndex * 100_000_000_000)
-		filter := bson.M{"_id": docId}
+		docId := int64(insertWorker.LastId + 1 + (insertWorker.WorkerIndex * 100_000_000_000))
+		userId := docId % NumUsers
+		filter := bson.M{"_id": docId, "user_id": userId}
 		update := bson.M{"$set": bson.M{"amount": newAmount}}
 		err := worker.updateDocument(worker.bencher.PrimaryCollection(), filter, update)
 		if err != nil {

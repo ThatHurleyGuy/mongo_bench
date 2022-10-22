@@ -68,8 +68,11 @@ func (worker *InsertWorker) insertIntoCollection(collection *mongo.Collection, t
 }
 
 func (worker *InsertWorker) Perform() error {
+	txnId := int64(worker.LastId + 1 + worker.CurrentOffset)
+	userId := txnId % NumUsers
 	txn := Transaction{
-		ID:        int64(worker.LastId + 1 + worker.CurrentOffset),
+		ID:        txnId,
+		UserID:    userId,
 		Amount:    rand.Intn(10000),
 		Category:  RandomTransactionCategory(),
 		CreatedAt: time.Now(),

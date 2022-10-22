@@ -22,13 +22,15 @@ var (
 	InstanceCollectionName     = "bencher_instances"
 	BenchDatabase              = "mongo_bench"
 	BenchCollection            = "transactions"
+	NumUsers                   = int64(1_000_000)
 )
 
 type Transaction struct {
 	ID        int64     `bson:"_id,omitempty"`
+	UserID    int64     `bson:"user_id"`
 	Amount    int       `bson:"amount,omitempty"`
 	Category  string    `bson:"category,omitempty"`
-	CreatedAt time.Time `json:"createdAt"`
+	CreatedAt time.Time `bson:"created_at"`
 }
 
 type Config struct {
@@ -42,6 +44,7 @@ type Config struct {
 	NumUpdateWorkers          *int
 	StatTickSpeedMillis       *int
 	Reset                     *bool
+	Sharded                   *bool
 }
 
 type BencherInstance struct {
@@ -89,9 +92,6 @@ func (bencher *BencherInstance) SecondaryCollection() *mongo.Collection {
 func (bencher *BencherInstance) makeClient(uri string) *mongo.Client {
 	connectionString := options.Client().ApplyURI(uri)
 	connectionString.SetWriteConcern(writeconcern.New(writeconcern.WMajority()))
-	connectionString.SetSocketTimeout(5000 * time.Millisecond)
-	connectionString.SetConnectTimeout(5000 * time.Millisecond)
-	connectionString.SetServerSelectionTimeout(5000 * time.Millisecond)
 	client, err := mongo.NewClient(connectionString)
 	if err != nil {
 		log.Fatal(err)
@@ -147,12 +147,34 @@ type MongoOp func() error
 
 func (bencher *BencherInstance) SetupDB(client *mongo.Client) error {
 	if bencher.IsPrimary {
-		index := mongo.IndexModel{
-			Keys: bson.D{{Key: "createdat", Value: -1}, {Key: "category", Value: 1}},
+		indexes := []mongo.IndexModel{
+			{Keys: bson.D{{Key: "user_id", Value: 1}}},
+			{Keys: bson.D{{Key: "user_id", Value: "hashed"}}},
+			{Keys: bson.D{{Key: "user_id", Value: 1}, {Key: "created_at", Value: -1}, {Key: "category", Value: 1}}},
+			{Keys: bson.D{{Key: "created_at", Value: -1}, {Key: "category", Value: 1}}},
 		}
-		_, err := client.Database(BenchDatabase).Collection(BenchCollection).Indexes().CreateOne(bencher.ctx, index)
-		if err != nil {
-			return err
+
+		for _, index := range indexes {
+			_, err := client.Database(BenchDatabase).Collection(BenchCollection).Indexes().CreateOne(bencher.ctx, index)
+			if err != nil {
+				return err
+			}
+		}
+		if *bencher.config.Sharded {
+			result := client.Database("admin").RunCommand(bencher.ctx, bson.M{"enableSharding": BenchDatabase})
+			if result.Err() != nil {
+				pterm.Printfln("Failed to enable sharding")
+				return result.Err()
+			}
+
+			result = client.Database("admin").RunCommand(bencher.ctx, bson.D{
+				{Key: "shardCollection", Value: "mongo_bench.transactions"},
+				{Key: "key", Value: bson.M{"user_id": "hashed"}},
+			})
+			if result.Err() != nil {
+				pterm.Printfln("Failed to shard collection")
+				return result.Err()
+			}
 		}
 	}
 	return nil

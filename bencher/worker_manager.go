@@ -99,7 +99,6 @@ func (manager *WorkerManager) Run() {
 			pool := manager.workerPools[optype]
 			trackers := []*OperationTracker{}
 			for i := 0; i < count; i++ {
-				pterm.Println("Starting %s worker", optype)
 				tracker := NewOperationTracker(manager.bencher, optype, pool.Initialize())
 				trackers = append(trackers, tracker)
 			}

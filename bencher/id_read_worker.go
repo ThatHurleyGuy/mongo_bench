@@ -27,8 +27,9 @@ func DoReadOp(ctx context.Context, insertWorker *InsertWorker, collection *mongo
 	if insertWorker.LastId == 0 {
 		time.Sleep(1 * time.Second)
 	} else {
-		docId := rand.Intn(insertWorker.LastId) + 1 + (insertWorker.WorkerIndex * 100_000_000_000)
-		doc := collection.FindOne(ctx, bson.M{"_id": docId})
+		docId := int64(rand.Intn(insertWorker.LastId) + 1 + (insertWorker.WorkerIndex * 100_000_000_000))
+		userId := docId % NumUsers
+		doc := collection.FindOne(ctx, bson.M{"_id": docId, "user_id": userId})
 		tran := &Transaction{}
 		err := doc.Decode(tran)
 		return err
