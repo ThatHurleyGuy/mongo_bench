@@ -152,13 +152,12 @@ func (bencher *BencherInstance) SetupDB(client *mongo.Client) error {
 			{Keys: bson.D{{Key: "user_id", Value: "hashed"}}},
 			{Keys: bson.D{{Key: "user_id", Value: 1}, {Key: "created_at", Value: -1}, {Key: "category", Value: 1}}},
 			{Keys: bson.D{{Key: "created_at", Value: -1}, {Key: "category", Value: 1}}},
+			{Keys: bson.D{{Key: "created_at", Value: -1}}},
 		}
 
-		for _, index := range indexes {
-			_, err := client.Database(BenchDatabase).Collection(BenchCollection).Indexes().CreateOne(bencher.ctx, index)
-			if err != nil {
-				return err
-			}
+		_, err := client.Database(BenchDatabase).Collection(BenchCollection).Indexes().CreateMany(bencher.ctx, indexes)
+		if err != nil {
+			return err
 		}
 		if *bencher.config.Sharded {
 			result := client.Database("admin").RunCommand(bencher.ctx, bson.M{"enableSharding": BenchDatabase})
