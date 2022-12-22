@@ -2,7 +2,11 @@ package bencher
 
 import (
 	"context"
+	"crypto/tls"
+	"crypto/x509"
+	"errors"
 	"fmt"
+	"io/ioutil"
 	"log"
 	"math/rand"
 	"time"
@@ -13,7 +17,6 @@ import (
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 	"go.mongodb.org/mongo-driver/mongo/readpref"
-	"go.mongodb.org/mongo-driver/mongo/writeconcern"
 )
 
 var (
@@ -102,18 +105,65 @@ func (bencher *BencherInstance) SecondaryCollection() *mongo.Collection {
 	return bencher.SecondaryMongoClient.Database(BenchDatabase).Collection(BenchCollection)
 }
 
-func (bencher *BencherInstance) makeClient(uri string) *mongo.Client {
-	// Force majority write concerns to ensure secondary reads work more consistently
-	connectionString := options.Client().ApplyURI(uri)
-	connectionString.SetWriteConcern(writeconcern.New(writeconcern.WMajority()))
-	connectionString.SetSocketTimeout(5000 * time.Millisecond)
-	connectionString.SetConnectTimeout(5000 * time.Millisecond)
-	connectionString.SetServerSelectionTimeout(5000 * time.Millisecond)
-	// connectionString := options.Client().ApplyURI(uri).SetWriteConcern(writeconcern.New(writeconcern.W(1)))
-	client, err := mongo.NewClient(connectionString)
+func getCustomTLSConfig(caFile string) (*tls.Config, error) {
+	tlsConfig := new(tls.Config)
+	certs, err := ioutil.ReadFile(caFile)
+
 	if err != nil {
-		log.Fatal(err)
+		return tlsConfig, err
 	}
+
+	tlsConfig.RootCAs = x509.NewCertPool()
+	ok := tlsConfig.RootCAs.AppendCertsFromPEM(certs)
+
+	if !ok {
+		return tlsConfig, errors.New("Failed parsing pem file")
+	}
+
+	return tlsConfig, nil
+}
+
+const (
+	// Path to the AWS CA file
+	caFilePath = "rds-combined-ca-bundle.pem"
+
+	// Timeout operations after N seconds
+	connectTimeout  = 5
+	queryTimeout    = 30
+	password        = "pUMP01wyuUVJo7uqVWRR6Lr5XS7QsK43"
+	username        = "hurleytestdocdb20221020"
+	clusterEndpoint = "hurley-test-docdb.cluster-c8thwxaiia3a.us-east-1.docdb.amazonaws.com"
+
+	// Which instances to read from
+	readPreference = "secondaryPreferred"
+
+	connectionStringTemplate = "mongodb://%s:%s@%s/mongo_bench?tls=true&replicaSet=rs0&readpreference=%s"
+)
+
+func (bencher *BencherInstance) makeClient(uri string) *mongo.Client {
+	connectionURI := fmt.Sprintf(connectionStringTemplate, username, password, clusterEndpoint, readPreference)
+
+	tlsConfig, err := getCustomTLSConfig(caFilePath)
+	if err != nil {
+		log.Fatalf("Failed getting TLS configuration: %v", err)
+	}
+
+	client, err := mongo.NewClient(options.Client().ApplyURI(connectionURI).SetTLSConfig(tlsConfig).SetRetryWrites(false))
+	if err != nil {
+		log.Fatalf("Failed to create client: %v", err)
+	}
+	// Force majority write concerns to ensure secondary reads work more consistently
+	// connectionString := options.Client().ApplyURI(uri)
+	// connectionString.SetTLSConfig(tlsConfig)
+	// connectionString.SetWriteConcern(writeconcern.New(writeconcern.WMajority()))
+	// connectionString.SetSocketTimeout(5000 * time.Millisecond)
+	// connectionString.SetConnectTimeout(5000 * time.Millisecond)
+	// connectionString.SetServerSelectionTimeout(5000 * time.Millisecond)
+	// // connectionString := options.Client().ApplyURI(uri).SetWriteConcern(writeconcern.New(writeconcern.W(1)))
+	// client, err := mongo.NewClient(connectionString)
+	// if err != nil {
+	// 	log.Fatal(err)
+	// }
 	err = client.Connect(bencher.ctx)
 	if err != nil {
 		log.Fatal(err)
@@ -198,13 +248,13 @@ func (bencher *BencherInstance) SetupDB(client *mongo.Client) error {
 			return err
 		}
 
-		index = mongo.IndexModel{
-			Keys: bson.D{{Key: "_id", Value: "hashed"}},
-		}
-		_, err = client.Database(BenchDatabase).Collection(BenchCollection).Indexes().CreateOne(bencher.ctx, index)
-		if err != nil {
-			return err
-		}
+		// index = mongo.IndexModel{
+		// 	Keys: bson.D{{Key: "_id", Value: "hashed"}},
+		// }
+		// _, err = client.Database(BenchDatabase).Collection(BenchCollection).Indexes().CreateOne(bencher.ctx, index)
+		// if err != nil {
+		// 	return err
+		// }
 	}
 	return nil
 }
