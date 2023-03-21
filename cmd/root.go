@@ -46,7 +46,6 @@ func init() {
 	config.StatTickSpeedMillis = rootCmd.Flags().Int("stat-tick-speed", 100, "Milliseconds between stat updates")
 	config.PrimaryURI = rootCmd.PersistentFlags().StringP("primary", "p", "", "Primary cluster to connect to")
 	rootCmd.MarkFlagRequired("primary")
-	config.SecondaryURI = rootCmd.Flags().StringP("secondary", "s", "", "Secondary cluster to connect to. Used to test dual reads in mongobetween")
 	config.MetadataURI = rootCmd.Flags().StringP("metadata", "m", "", "Metadata cluster to store benchmark state, defaults to primary cluster")
 	config.Reset = rootCmd.Flags().BoolP("reset", "r", false, "Reset clusters DBs before starting")
 	config.Sharded = rootCmd.Flags().Bool("sharded", false, "Enable sharding on user_id")

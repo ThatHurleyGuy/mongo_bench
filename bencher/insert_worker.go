@@ -81,12 +81,6 @@ func (worker *InsertWorker) Perform() error {
 	if err != nil {
 		return err
 	}
-	if worker.bencher.SecondaryCollection() != nil {
-		err := worker.insertIntoCollection(worker.bencher.SecondaryCollection(), &txn)
-		if err != nil {
-			return err
-		}
-	}
 
 	worker.LastId++
 	return nil

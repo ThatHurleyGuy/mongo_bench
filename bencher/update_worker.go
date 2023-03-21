@@ -44,12 +44,6 @@ func (worker *UpdateWorker) Perform() error {
 		if err != nil {
 			return err
 		}
-		if worker.bencher.SecondaryCollection() != nil {
-			err := worker.updateDocument(worker.bencher.SecondaryCollection(), filter, update)
-			if err != nil {
-				return err
-			}
-		}
 	}
 	return nil
 }

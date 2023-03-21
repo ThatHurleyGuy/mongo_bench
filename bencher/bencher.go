@@ -35,7 +35,6 @@ type Transaction struct {
 
 type Config struct {
 	PrimaryURI                *string
-	SecondaryURI              *string
 	MetadataURI               *string
 	NumInsertWorkers          *int
 	NumIDReadWorkers          *int
@@ -51,13 +50,12 @@ type BencherInstance struct {
 	ID        primitive.ObjectID `bson:"_id"`
 	IsPrimary bool               `bson:"isPrimary"`
 
-	ctx                  context.Context
-	config               *Config
-	allInsertWorkers     []*InsertWorker
-	WorkerManager        *WorkerManager
-	PrimaryMongoClient   *mongo.Client
-	SecondaryMongoClient *mongo.Client
-	MetadataMongoClient  *mongo.Client
+	ctx                 context.Context
+	config              *Config
+	allInsertWorkers    []*InsertWorker
+	WorkerManager       *WorkerManager
+	PrimaryMongoClient  *mongo.Client
+	MetadataMongoClient *mongo.Client
 }
 
 func NewBencher(ctx context.Context, config *Config) *BencherInstance {
@@ -82,13 +80,6 @@ func (bencher *BencherInstance) PrimaryCollectionSecondaryRead() *mongo.Collecti
 	return bencher.PrimaryMongoClient.Database(BenchDatabase, opts).Collection(BenchCollection)
 }
 
-func (bencher *BencherInstance) SecondaryCollection() *mongo.Collection {
-	if bencher.SecondaryMongoClient == nil {
-		return nil
-	}
-	return bencher.SecondaryMongoClient.Database(BenchDatabase).Collection(BenchCollection)
-}
-
 func (bencher *BencherInstance) makeClient(uri string) *mongo.Client {
 	connectionString := options.Client().ApplyURI(uri)
 	connectionString.SetWriteConcern(writeconcern.New(writeconcern.WMajority()))
@@ -108,13 +99,6 @@ func (bencher *BencherInstance) makePrimaryClient() *mongo.Client {
 		bencher.PrimaryMongoClient = bencher.makeClient(*bencher.config.PrimaryURI)
 	}
 	return bencher.PrimaryMongoClient
-}
-
-func (bencher *BencherInstance) makeSecondaryClient() *mongo.Client {
-	if bencher.SecondaryMongoClient == nil && *bencher.config.SecondaryURI != "" {
-		bencher.SecondaryMongoClient = bencher.makeClient(*bencher.config.SecondaryURI)
-	}
-	return bencher.SecondaryMongoClient
 }
 
 func (bencher *BencherInstance) makeMetadataClient() *mongo.Client {
@@ -222,15 +206,11 @@ func (bencher *BencherInstance) SetupMetadataDB() error {
 func (bencher *BencherInstance) Close() {
 	bencher.MetadataMongoClient.Disconnect(bencher.ctx)
 	bencher.PrimaryMongoClient.Disconnect(bencher.ctx)
-	if bencher.SecondaryMongoClient != nil {
-		bencher.SecondaryMongoClient.Disconnect(bencher.ctx)
-	}
 }
 
 func (bencher *BencherInstance) Reset() {
 	log.Println("Resetting dbs...")
 	bencher.makePrimaryClient()
-	bencher.makeSecondaryClient()
 	bencher.makeMetadataClient()
 	err := bencher.MetadataMongoClient.Database(MetadataDatabase).Drop(bencher.ctx)
 	if err != nil {
@@ -240,12 +220,6 @@ func (bencher *BencherInstance) Reset() {
 	err = bencher.PrimaryMongoClient.Database(BenchDatabase).Drop(bencher.ctx)
 	if err != nil {
 		log.Fatal(err)
-	}
-	if bencher.SecondaryMongoClient != nil {
-		err = bencher.SecondaryMongoClient.Database(BenchDatabase).Drop(bencher.ctx)
-		if err != nil {
-			log.Fatal(err)
-		}
 	}
 }
 
@@ -269,15 +243,6 @@ func (bencher *BencherInstance) Start() {
 	err = bencher.SetupDB(bencher.PrimaryMongoClient)
 	if err != nil {
 		log.Fatal("Error setting up primary: ", err)
-	}
-
-	if *bencher.config.SecondaryURI != "" {
-		log.Println("Setting up secondary")
-		bencher.makeSecondaryClient()
-		err = bencher.SetupDB(bencher.SecondaryMongoClient)
-		if err != nil {
-			log.Fatal("Error reseting secondary: ", err)
-		}
 	}
 
 	transactionsForUserPool := &TransactionsForUserWorkerPool{bencher: bencher}
