@@ -280,14 +280,16 @@ func (bencher *BencherInstance) Start() {
 		}
 	}
 
+	transactionsForUserPool := &TransactionsForUserWorkerPool{bencher: bencher}
 	insertPool := &InsertWorkerPool{bencher: bencher}
 	idReadPool := &IDReadWorkerPool{bencher: bencher}
 	secondaryIDReadPool := &SecondaryNodeIDReadWorkerPool{bencher: bencher}
 	updateWorkerPool := &UpdateWorkerPool{bencher: bencher}
 	aggregationPool := &AggregationWorkerPool{bencher: bencher}
+	bencher.WorkerManager.AddPool("transactions_for_user", *bencher.config.NumSecondaryIDReadWorkers, transactionsForUserPool)
 	bencher.WorkerManager.AddPool("insert", *bencher.config.NumInsertWorkers, insertPool)
-	bencher.WorkerManager.AddPool("id_read", *bencher.config.NumIDReadWorkers, idReadPool)
-	bencher.WorkerManager.AddPool("secondary_node_id_read", *bencher.config.NumSecondaryIDReadWorkers, secondaryIDReadPool)
+	bencher.WorkerManager.AddPool("up_to_date_id_read_by_id", *bencher.config.NumIDReadWorkers, idReadPool)
+	bencher.WorkerManager.AddPool("unimportant_read_by_id", *bencher.config.NumSecondaryIDReadWorkers, secondaryIDReadPool)
 	bencher.WorkerManager.AddPool("update", *bencher.config.NumUpdateWorkers, updateWorkerPool)
 	bencher.WorkerManager.AddPool("aggregation", *bencher.config.NumAggregationWorkers, aggregationPool)
 	bencher.WorkerManager.Run()

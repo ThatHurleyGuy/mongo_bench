@@ -126,7 +126,6 @@ func (manager *WorkerManager) Run() {
 					pterm.Printfln("Error parsing insert workers %+v", err)
 				}
 				manager.bencher.allInsertWorkers = insertWorkers
-				pterm.Printfln("Found %d total insert workers", len(manager.bencher.allInsertWorkers))
 
 				area.Stop()
 				pterm.Printfln("Time: %+v", time.Now())
