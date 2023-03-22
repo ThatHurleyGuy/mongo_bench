@@ -35,7 +35,6 @@ type Transaction struct {
 
 type Config struct {
 	PrimaryURI                *string
-	MetadataURI               *string
 	NumInsertWorkers          *int
 	NumIDReadWorkers          *int
 	NumSecondaryIDReadWorkers *int
@@ -50,12 +49,11 @@ type BencherInstance struct {
 	ID        primitive.ObjectID `bson:"_id"`
 	IsPrimary bool               `bson:"isPrimary"`
 
-	ctx                 context.Context
-	config              *Config
-	allInsertWorkers    []*InsertWorker
-	WorkerManager       *WorkerManager
-	PrimaryMongoClient  *mongo.Client
-	MetadataMongoClient *mongo.Client
+	ctx                context.Context
+	config             *Config
+	allInsertWorkers   []*InsertWorker
+	WorkerManager      *WorkerManager
+	PrimaryMongoClient *mongo.Client
 }
 
 func NewBencher(ctx context.Context, config *Config) *BencherInstance {
@@ -101,19 +99,12 @@ func (bencher *BencherInstance) makePrimaryClient() *mongo.Client {
 	return bencher.PrimaryMongoClient
 }
 
-func (bencher *BencherInstance) makeMetadataClient() *mongo.Client {
-	if bencher.MetadataMongoClient == nil {
-		bencher.MetadataMongoClient = bencher.makeClient(*bencher.config.MetadataURI)
-	}
-	return bencher.MetadataMongoClient
-}
-
 func (bencher *BencherInstance) InsertWorkerCollection() *mongo.Collection {
-	return bencher.MetadataMongoClient.Database(MetadataDatabase).Collection(InsertWorkerCollectionName)
+	return bencher.PrimaryMongoClient.Database(MetadataDatabase).Collection(InsertWorkerCollectionName)
 }
 
 func (bencher *BencherInstance) BencherInstanceCollection() *mongo.Collection {
-	return bencher.MetadataMongoClient.Database(MetadataDatabase).Collection(InstanceCollectionName)
+	return bencher.PrimaryMongoClient.Database(MetadataDatabase).Collection(InstanceCollectionName)
 }
 
 func (bencher *BencherInstance) RandomInsertWorker() *InsertWorker {
@@ -195,7 +186,7 @@ func (bencher *BencherInstance) SetupMetadataDB() error {
 			Keys:    bson.D{{Key: "workerIndex", Value: 1}},
 			Options: options.Index().SetUnique(true),
 		}
-		_, err = bencher.MetadataMongoClient.Database(MetadataDatabase).Collection(InsertWorkerCollectionName).Indexes().CreateOne(bencher.ctx, index)
+		_, err = bencher.PrimaryMongoClient.Database(MetadataDatabase).Collection(InsertWorkerCollectionName).Indexes().CreateOne(bencher.ctx, index)
 		if err != nil {
 			return err
 		}
@@ -204,15 +195,14 @@ func (bencher *BencherInstance) SetupMetadataDB() error {
 }
 
 func (bencher *BencherInstance) Close() {
-	bencher.MetadataMongoClient.Disconnect(bencher.ctx)
 	bencher.PrimaryMongoClient.Disconnect(bencher.ctx)
 }
 
 func (bencher *BencherInstance) Reset() {
 	log.Println("Resetting dbs...")
 	bencher.makePrimaryClient()
-	bencher.makeMetadataClient()
-	err := bencher.MetadataMongoClient.Database(MetadataDatabase).Drop(bencher.ctx)
+
+	err := bencher.PrimaryMongoClient.Database(MetadataDatabase).Drop(bencher.ctx)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -231,18 +221,17 @@ func (bencher *BencherInstance) Start() {
 		bencher.Reset()
 	}
 
-	log.Println("Setting up metadata db")
-	bencher.makeMetadataClient()
-	err = bencher.SetupMetadataDB()
-	if err != nil {
-		log.Fatal("Error setting up metadata mongo connection: ", err)
-	}
-
 	log.Println("Setting up primary")
 	bencher.makePrimaryClient()
 	err = bencher.SetupDB(bencher.PrimaryMongoClient)
 	if err != nil {
 		log.Fatal("Error setting up primary: ", err)
+	}
+
+	log.Println("Setting up metadata db")
+	err = bencher.SetupMetadataDB()
+	if err != nil {
+		log.Fatal("Error setting up metadata mongo connection: ", err)
 	}
 
 	transactionsForUserPool := &TransactionsForUserWorkerPool{bencher: bencher}

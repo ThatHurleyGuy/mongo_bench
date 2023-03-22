@@ -23,9 +23,6 @@ var resetCmd = &cobra.Command{
 		defer cancel()
 
 		bencher := bencher.NewBencher(ctx, &config)
-		if *config.MetadataURI == "" {
-			config.MetadataURI = config.PrimaryURI
-		}
 		bencher.Reset()
 	},
 }
