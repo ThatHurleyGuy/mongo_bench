@@ -221,17 +221,17 @@ func (bencher *BencherInstance) Start() {
 		bencher.Reset()
 	}
 
+	log.Println("Setting up metadata db")
+	err = bencher.SetupMetadataDB()
+	if err != nil {
+		log.Fatal("Error setting up metadata mongo connection: ", err)
+	}
+
 	log.Println("Setting up primary")
 	bencher.makePrimaryClient()
 	err = bencher.SetupDB(bencher.PrimaryMongoClient)
 	if err != nil {
 		log.Fatal("Error setting up primary: ", err)
-	}
-
-	log.Println("Setting up metadata db")
-	err = bencher.SetupMetadataDB()
-	if err != nil {
-		log.Fatal("Error setting up metadata mongo connection: ", err)
 	}
 
 	transactionsForUserPool := &TransactionsForUserWorkerPool{bencher: bencher}
