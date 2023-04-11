@@ -48,10 +48,10 @@ func (manager *WorkerManager) SetNumWorkers(numWorkers int, workerType string) {
 	manager.workerCounts[workerType] = numWorkers
 }
 
-func (manager *WorkerManager) AddPool(optype string, numWorkers int, pool OperationPool) {
-	manager.workerPools[optype] = pool
-	manager.workerCounts[optype] = numWorkers
-	manager.rollingStatWindow[optype] = NewQueue()
+func (manager *WorkerManager) AddPool(pool OperationPool) {
+	manager.workerPools[pool.OpType()] = pool
+	manager.workerCounts[pool.OpType()] = pool.NumWorkers()
+	manager.rollingStatWindow[pool.OpType()] = NewQueue()
 }
 
 func NewWorkerManager(bencher *BencherInstance) *WorkerManager {
@@ -137,7 +137,7 @@ func (manager *WorkerManager) Run() {
 
 				for _, v := range manager.workerTracker {
 					for _, ot := range v {
-						ot.worker.Save()
+						ot.worker.Save(ot.ctx)
 					}
 				}
 			case <-redrawTicker.C:

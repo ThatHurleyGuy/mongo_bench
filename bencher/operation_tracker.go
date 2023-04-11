@@ -1,17 +1,20 @@
 package bencher
 
 import (
+	"context"
 	"fmt"
 	"time"
 )
 
 type OperationPool interface {
 	Initialize() OperationWorker
+	OpType() string
+	NumWorkers() int
 }
 
 type OperationWorker interface {
-	Perform() error
-	Save()
+	Perform(ctx context.Context) error
+	Save(ctx context.Context)
 }
 
 type OpResult struct {
@@ -25,6 +28,7 @@ type OperationTracker struct {
 	worker    OperationWorker
 	OpType    string
 
+	ctx                      context.Context
 	controlChannel           chan string
 	backgroundControlChannel chan string
 	opChannel                chan OpResult
@@ -111,7 +115,7 @@ func (tracker *OperationTracker) BackgroundThread() {
 			return
 		default:
 			start := time.Now()
-			err := tracker.worker.Perform()
+			err := tracker.worker.Perform(tracker.ctx)
 			latency := int(time.Since(start).Microseconds())
 			tracker.opChannel <- OpResult{
 				err:     err,
