@@ -3,6 +3,7 @@ package bencher
 import (
 	"context"
 	"log"
+	"math/rand"
 	"time"
 
 	"github.com/pterm/pterm"
@@ -60,7 +61,7 @@ func NewBencher(ctx context.Context, config *Config) *BencherInstance {
 		config:           config,
 		allInsertWorkers: []*InsertWorker{},
 	}
-	bencher.DatabaseBencher = &MongoBencher{
+	bencher.DatabaseBencher = &PostgresBencher{
 		bencherInstance: bencher,
 		ctx:             bencher.ctx,
 	}
@@ -84,6 +85,17 @@ func (bencher *BencherInstance) InsertWorkerCollection() *mongo.Collection {
 
 func (bencher *BencherInstance) BencherInstanceCollection() *mongo.Collection {
 	return bencher.MetadataDBClient.Database(MetadataDatabase).Collection(InstanceCollectionName)
+}
+
+func (bencher *BencherInstance) RandomInsertWorker() *InsertWorker {
+	for {
+		if len(bencher.allInsertWorkers) == 0 {
+			time.Sleep(10 * time.Millisecond)
+		} else {
+			index := rand.Intn(len(bencher.allInsertWorkers))
+			return bencher.allInsertWorkers[index]
+		}
+	}
 }
 
 func (bencher *BencherInstance) SetupMetadataDB() error {

@@ -152,7 +152,7 @@ func (bencher *MongoBencher) OperationPool() []OperationPool {
 		workers: *bencher.bencherInstance.config.NumIDReadWorkers,
 		opFunc: func(ctx context.Context, worker *SimpleWorker) error {
 			collection := bencher.PrimaryCollection()
-			insertWorker := bencher.RandomInsertWorker()
+			insertWorker := bencher.bencherInstance.RandomInsertWorker()
 			return DoReadOp(ctx, insertWorker, collection)
 		},
 	}
@@ -160,7 +160,7 @@ func (bencher *MongoBencher) OperationPool() []OperationPool {
 		opType:  "secondary_read",
 		workers: *bencher.bencherInstance.config.NumSecondaryIDReadWorkers,
 		opFunc: func(ctx context.Context, worker *SimpleWorker) error {
-			insertWorker := bencher.RandomInsertWorker()
+			insertWorker := bencher.bencherInstance.RandomInsertWorker()
 			return DoReadOp(ctx, insertWorker, bencher.PrimaryCollectionSecondaryRead())
 		},
 	}
@@ -168,7 +168,7 @@ func (bencher *MongoBencher) OperationPool() []OperationPool {
 		opType:  "update",
 		workers: *bencher.bencherInstance.config.NumUpdateWorkers,
 		opFunc: func(ctx context.Context, worker *SimpleWorker) error {
-			insertWorker := bencher.RandomInsertWorker()
+			insertWorker := bencher.bencherInstance.RandomInsertWorker()
 			if insertWorker.LastId == 0 {
 				time.Sleep(1 * time.Second)
 			} else {
@@ -222,17 +222,6 @@ func (bencher *MongoBencher) OperationPool() []OperationPool {
 		secondaryIDReadPool,
 		updateWorkerPool,
 		aggregationPool,
-	}
-}
-
-func (bencher *MongoBencher) RandomInsertWorker() *InsertWorker {
-	for {
-		if len(bencher.bencherInstance.allInsertWorkers) == 0 {
-			time.Sleep(10 * time.Millisecond)
-		} else {
-			index := rand.Intn(len(bencher.bencherInstance.allInsertWorkers))
-			return bencher.bencherInstance.allInsertWorkers[index]
-		}
 	}
 }
 

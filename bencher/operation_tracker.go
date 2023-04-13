@@ -42,6 +42,7 @@ func NewOperationTracker(bencher *BencherInstance, opType string, worker Operati
 		controlChannel:           make(chan string),
 		backgroundControlChannel: make(chan string),
 		opChannel:                make(chan OpResult),
+		ctx:                      bencher.ctx,
 	}
 
 	go tracker.ControlThread()
