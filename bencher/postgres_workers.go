@@ -39,7 +39,8 @@ func MakePostgresClient(ctx context.Context, connString string) (*sql.DB, error)
 func (bencher *PostgresBencher) Setup() error {
 	log.Println("Setting up postgres database")
 	var err error
-	bencher.DB, err = MakePostgresClient(bencher.ctx, "postgres://postgres:postgres@127.0.0.1:5432/mongo_bench?sslmode=disable")
+	// "postgres://postgres:postgres@127.0.0.1:5432/mongo_bench?sslmode=disable"
+	bencher.DB, err = MakePostgresClient(bencher.ctx, *bencher.bencherInstance.config.PrimaryURI)
 	if err != nil {
 		log.Fatal("Error setting up postgres database: ", err)
 		return err

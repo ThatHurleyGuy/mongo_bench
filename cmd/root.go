@@ -42,6 +42,7 @@ func init() {
 	config.NumUpdateWorkers = rootCmd.Flags().Int("update-workers", 1, "Number of update worker goroutines to run")
 	config.StatTickSpeedMillis = rootCmd.Flags().Int("stat-tick-speed", 100, "Milliseconds between stat updates")
 	config.PrimaryURI = rootCmd.PersistentFlags().StringP("primary", "p", "", "Primary cluster to connect to")
+	config.MetadataURI = rootCmd.PersistentFlags().StringP("metadata", "m", "", "Mongo cluster for metadata storage")
 	rootCmd.MarkFlagRequired("primary")
 	config.Reset = rootCmd.Flags().BoolP("reset", "r", false, "Reset clusters DBs before starting")
 	config.Sharded = rootCmd.Flags().Bool("sharded", false, "Enable sharding on user_id")

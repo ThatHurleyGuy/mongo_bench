@@ -2,8 +2,10 @@ package bencher
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"math/rand"
+	"strings"
 	"time"
 
 	"github.com/pterm/pterm"
@@ -25,6 +27,7 @@ var (
 
 type Config struct {
 	PrimaryURI                *string
+	MetadataURI               *string
 	NumInsertWorkers          *int
 	NumIDReadWorkers          *int
 	NumSecondaryIDReadWorkers *int
@@ -61,9 +64,19 @@ func NewBencher(ctx context.Context, config *Config) *BencherInstance {
 		config:           config,
 		allInsertWorkers: []*InsertWorker{},
 	}
-	bencher.DatabaseBencher = &PostgresBencher{
-		bencherInstance: bencher,
-		ctx:             bencher.ctx,
+	if strings.HasPrefix(*config.PrimaryURI, "mongodb") {
+		bencher.DatabaseBencher = &MongoBencher{
+			bencherInstance: bencher,
+			ctx:             bencher.ctx,
+		}
+
+	} else if strings.HasPrefix(*config.PrimaryURI, "postgres") {
+		bencher.DatabaseBencher = &PostgresBencher{
+			bencherInstance: bencher,
+			ctx:             bencher.ctx,
+		}
+	} else {
+		panic(fmt.Sprintf("Unknown DB type for string: %s", *config.PrimaryURI))
 	}
 	manager := NewWorkerManager(bencher)
 	bencher.WorkerManager = manager
@@ -74,7 +87,7 @@ type MongoOp func() error
 
 func (bencher *BencherInstance) makeMetadataClient() *mongo.Client {
 	if bencher.MetadataDBClient == nil {
-		bencher.MetadataDBClient = MakeMongoClient(bencher.ctx, *bencher.config.PrimaryURI)
+		bencher.MetadataDBClient = MakeMongoClient(bencher.ctx, *bencher.config.MetadataURI)
 	}
 	return bencher.MetadataDBClient
 }
