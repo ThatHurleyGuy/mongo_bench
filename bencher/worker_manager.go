@@ -23,15 +23,15 @@ type OperationWorkerStats struct {
 }
 
 func (o *OperationWorkerStats) Copy() *OperationWorkerStats {
-	copiedErrors := []string{}
-	copy(copiedErrors, o.errors)
+	// copiedErrors := make([]string, len(o.errors))
+	// copy(copiedErrors, o.errors)
 	return &OperationWorkerStats{
 		numWorkers:     o.numWorkers,
 		totalElapsedMs: o.totalElapsedMs,
 		numOps:         o.numOps,
 		latencyMicros:  o.latencyMicros,
 		opType:         o.opType,
-		errors:         copiedErrors,
+		errors:         o.errors,
 	}
 }
 
@@ -165,7 +165,7 @@ func (manager *WorkerManager) Run() {
 				}
 
 				td := [][]string{
-					{"Operation", "# Goroutines", "Per Second", "Avg Latency (us)", "Errors"},
+					{"Operation", "# Goroutines", "Per Second", "Avg Latency (us)", "Error Rates"},
 				}
 				for optype, window := range manager.rollingStatWindow {
 					var sumWindowStats *OperationWorkerStats
