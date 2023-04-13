@@ -116,7 +116,7 @@ func (bencher *PostgresBencher) OperationPool() []OperationPool {
 				CreatedAt: time.Now(),
 			}
 			_, insertErr := bencher.DB.ExecContext(ctx, "INSERT INTO transactions (id, user_id, amount, category, created_at) VALUES ($1, $2, $3, $4, $5)", txn.ID, txn.UserID, txn.Amount, txn.Category, txn.CreatedAt)
-			if insertErr != nil {
+			if insertErr == nil {
 				worker.LastId++
 			}
 			return insertErr

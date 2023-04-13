@@ -122,7 +122,7 @@ func (bencher *MongoBencher) OperationPool() []OperationPool {
 				CreatedAt: time.Now(),
 			}
 			_, insertErr := bencher.PrimaryCollection().InsertOne(ctx, txn)
-			if insertErr != nil {
+			if insertErr == nil {
 				worker.LastId++
 			}
 			return insertErr
