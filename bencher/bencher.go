@@ -26,16 +26,14 @@ var (
 )
 
 type Config struct {
-	PrimaryURI                *string
-	MetadataURI               *string
-	NumInsertWorkers          *int
-	NumIDReadWorkers          *int
-	NumSecondaryIDReadWorkers *int
-	NumAggregationWorkers     *int
-	NumUpdateWorkers          *int
-	StatTickSpeedMillis       *int
-	Reset                     *bool
-	Sharded                   *bool
+	PrimaryURI           *string
+	ReaderURI            *string
+	MetadataURI          *string
+	NumWorkers           *int
+	WorkerReadWriteRatio *int
+	StatTickSpeedMillis  *int
+	Reset                *bool
+	Sharded              *bool
 }
 
 type DatabaseBencher interface {
@@ -47,13 +45,14 @@ type DatabaseBencher interface {
 type BencherInstance struct {
 	ID               primitive.ObjectID `bson:"_id"`
 	IsPrimary        bool               `bson:"isPrimary"`
-	MetadataDBClient *mongo.Client
-	WorkerManager    *WorkerManager
+	MetadataDBClient *mongo.Client      `bson:"-"`
+	WorkerManager    *WorkerManager     `bson:"-"`
+	RandomStrings    []string           `bson:"-"`
 
-	allInsertWorkers []*InsertWorker
-	ctx              context.Context
-	config           *Config
-	DatabaseBencher  DatabaseBencher
+	allInsertWorkers []*InsertWorker `bson:"-"`
+	ctx              context.Context `bson:"-"`
+	config           *Config         `bson:"-"`
+	DatabaseBencher  DatabaseBencher `bson:"-"`
 }
 
 func NewBencher(ctx context.Context, config *Config) *BencherInstance {

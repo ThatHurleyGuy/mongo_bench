@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"log"
+	"math"
 	"math/rand"
 	"time"
 
@@ -20,6 +21,7 @@ type PGTransaction struct {
 
 type PostgresBencher struct {
 	DB              *sql.DB
+	RODB            *sql.DB
 	ctx             context.Context
 	bencherInstance *BencherInstance
 }
@@ -45,6 +47,17 @@ func (bencher *PostgresBencher) Setup() error {
 		log.Fatal("Error setting up postgres database: ", err)
 		return err
 	}
+	if bencher.bencherInstance.config.ReaderURI != nil {
+		log.Println("Setting up readonly postgres database")
+		bencher.RODB, err = MakePostgresClient(bencher.ctx, *bencher.bencherInstance.config.ReaderURI)
+		if err != nil {
+			log.Fatal("Error setting up postgres database: ", err)
+			return err
+		}
+	} else {
+		log.Println("No readonly URI set, using primary")
+		bencher.RODB = bencher.DB
+	}
 	err = bencher.SetupDB()
 	if err != nil {
 		log.Fatal("Error setting up postgres database: ", err)
@@ -60,6 +73,7 @@ func (bencher *PostgresBencher) Close() {
 func (bencher *PostgresBencher) SetupDB() error {
 	if bencher.bencherInstance.IsPrimary {
 		if *bencher.bencherInstance.config.Reset {
+			log.Print("Dropping old transactions table")
 			_, err := bencher.DB.Exec("DROP TABLE IF EXISTS transactions")
 			if err != nil {
 				return err
@@ -103,9 +117,18 @@ func (bencher *PostgresBencher) SetupDB() error {
 }
 
 func (bencher *PostgresBencher) OperationPool() []OperationPool {
+	readWorkers := float64(*bencher.bencherInstance.config.NumWorkers * *bencher.bencherInstance.config.WorkerReadWriteRatio / 100.0)
+	readWorkers = math.Ceil(readWorkers)
+	primaryIDReadWorkers := math.Floor(readWorkers * 0.25)
+	secondaryIDReadWorkers := math.Floor(readWorkers * 0.5)
+	aggregateReportWorkers := primaryIDReadWorkers
+	userTransactionsSecondaryWorkers := readWorkers - primaryIDReadWorkers - secondaryIDReadWorkers
+	writeWorkers := float64(*bencher.bencherInstance.config.NumWorkers) - readWorkers
+	insertWorkers := math.Floor(writeWorkers * 0.75)
+	updateWorkers := writeWorkers - insertWorkers
 	insertPool := &InsertWorkerPool{
 		bencher: bencher.bencherInstance,
-		workers: *bencher.bencherInstance.config.NumInsertWorkers,
+		workers: int(insertWorkers),
 		InsertFunc: func(ctx context.Context, worker *InsertWorker) error {
 			txnId := int64(worker.LastId + 1 + worker.CurrentOffset)
 			userId := txnId % NumUsers
@@ -116,7 +139,7 @@ func (bencher *PostgresBencher) OperationPool() []OperationPool {
 				Category:  RandomTransactionCategory(),
 				CreatedAt: time.Now(),
 			}
-			_, insertErr := bencher.DB.ExecContext(ctx, "INSERT INTO transactions (id, user_id, amount, category, created_at) VALUES ($1, $2, $3, $4, $5)", txn.ID, txn.UserID, txn.Amount, txn.Category, txn.CreatedAt)
+			_, insertErr := bencher.DB.ExecContext(ctx, "INSERT INTO transactions (id, user_id, amount, category, metadata, created_at) VALUES ($1, $2, $3, $4, $5, $6)", txn.ID, txn.UserID, txn.Amount, txn.Category, txn.Metadata, txn.CreatedAt)
 			if insertErr == nil {
 				worker.LastId++
 			}
@@ -125,11 +148,11 @@ func (bencher *PostgresBencher) OperationPool() []OperationPool {
 	}
 	transactionsForUserPool := &SimpleWorkerPool{
 		opType:  "transactions_for_user",
-		workers: *bencher.bencherInstance.config.NumSecondaryIDReadWorkers,
+		workers: int(userTransactionsSecondaryWorkers),
 		opFunc: func(ctx context.Context, worker *SimpleWorker) error {
 			userId := rand.Int31n(int32(NumUsers))
 			limit := 50
-			rows, err := bencher.DB.QueryContext(ctx, "SELECT * FROM transactions WHERE user_id = $1 ORDER BY created_at DESC LIMIT $2", userId, limit)
+			rows, err := bencher.RODB.QueryContext(ctx, "SELECT * FROM transactions WHERE user_id = $1 ORDER BY created_at DESC LIMIT $2", userId, limit)
 			if err != nil {
 				return err
 			}
@@ -137,7 +160,7 @@ func (bencher *PostgresBencher) OperationPool() []OperationPool {
 			var results []PGTransaction
 			for rows.Next() {
 				var txn PGTransaction
-				if err := rows.Scan(&txn.ID, &txn.UserID, &txn.Amount, &txn.Category, &txn.CreatedAt); err != nil {
+				if err := rows.Scan(&txn.ID, &txn.UserID, &txn.Amount, &txn.Category, &txn.Metadata, &txn.CreatedAt); err != nil {
 					return err
 				}
 				results = append(results, txn)
@@ -147,21 +170,22 @@ func (bencher *PostgresBencher) OperationPool() []OperationPool {
 	}
 	idReadPool := &SimpleWorkerPool{
 		opType:  "primary_read",
-		workers: *bencher.bencherInstance.config.NumIDReadWorkers,
+		workers: int(primaryIDReadWorkers),
 		opFunc: func(ctx context.Context, worker *SimpleWorker) error {
-			return DoPSQLReadOp(ctx, bencher.bencherInstance.RandomInsertWorker(), bencher.DB)
+			// TODO: should this be against writer?
+			return DoPSQLReadOp(ctx, bencher.bencherInstance.RandomInsertWorker(), bencher.RODB)
 		},
 	}
 	secondaryIDReadPool := &SimpleWorkerPool{
 		opType:  "secondary_read",
-		workers: *bencher.bencherInstance.config.NumSecondaryIDReadWorkers,
+		workers: int(secondaryIDReadWorkers),
 		opFunc: func(ctx context.Context, worker *SimpleWorker) error {
-			return DoPSQLReadOp(ctx, bencher.bencherInstance.RandomInsertWorker(), bencher.DB)
+			return DoPSQLReadOp(ctx, bencher.bencherInstance.RandomInsertWorker(), bencher.RODB)
 		},
 	}
 	updateWorkerPool := &SimpleWorkerPool{
 		opType:  "update",
-		workers: *bencher.bencherInstance.config.NumUpdateWorkers,
+		workers: int(updateWorkers),
 		opFunc: func(ctx context.Context, worker *SimpleWorker) error {
 			insertWorker := bencher.bencherInstance.RandomInsertWorker()
 			if insertWorker.LastId == 0 {
@@ -180,10 +204,10 @@ func (bencher *PostgresBencher) OperationPool() []OperationPool {
 	}
 	aggregationPool := &SimpleWorkerPool{
 		opType:  "aggregation",
-		workers: *bencher.bencherInstance.config.NumAggregationWorkers,
+		workers: int(aggregateReportWorkers),
 		opFunc: func(ctx context.Context, worker *SimpleWorker) error {
 			ago := time.Now().UTC().Add(-5 * time.Second)
-			rows, err := bencher.DB.QueryContext(ctx, "SELECT category, SUM(amount) as total_amount FROM transactions WHERE created_at >= $1 GROUP BY category", ago)
+			rows, err := bencher.RODB.QueryContext(ctx, "SELECT category, SUM(amount) as total_amount FROM transactions WHERE created_at >= $1 GROUP BY category", ago)
 			if err != nil {
 				return err
 			}

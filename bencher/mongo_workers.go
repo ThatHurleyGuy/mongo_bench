@@ -3,6 +3,7 @@ package bencher
 import (
 	"context"
 	"log"
+	"math"
 	"math/rand"
 	"time"
 
@@ -108,9 +109,20 @@ func (bencher *MongoBencher) SetupDB(client *mongo.Client) error {
 }
 
 func (bencher *MongoBencher) OperationPool() []OperationPool {
+	readWorkers := float64(*bencher.bencherInstance.config.NumWorkers * *bencher.bencherInstance.config.WorkerReadWriteRatio / 100.0)
+	readWorkers = math.Ceil(readWorkers)
+	primaryIDReadWorkers := math.Floor(readWorkers * 0.25)
+	secondaryIDReadWorkers := math.Floor(readWorkers * 0.5)
+	aggregateReportWorkers := primaryIDReadWorkers
+	userTransactionsSecondaryWorkers := readWorkers - primaryIDReadWorkers - secondaryIDReadWorkers
+
+	writeWorkers := float64(*bencher.bencherInstance.config.NumWorkers) - readWorkers
+	insertWorkers := math.Floor(writeWorkers * 0.75)
+	updateWorkers := writeWorkers - insertWorkers
+
 	insertPool := &InsertWorkerPool{
 		bencher: bencher.bencherInstance,
-		workers: *bencher.bencherInstance.config.NumInsertWorkers,
+		workers: int(insertWorkers),
 		InsertFunc: func(ctx context.Context, worker *InsertWorker) error {
 			txnId := int64(worker.LastId + 1 + worker.CurrentOffset)
 			userId := txnId % NumUsers
@@ -130,7 +142,7 @@ func (bencher *MongoBencher) OperationPool() []OperationPool {
 	}
 	transactionsForUserPool := &SimpleWorkerPool{
 		opType:  "transactions_for_user",
-		workers: *bencher.bencherInstance.config.NumSecondaryIDReadWorkers,
+		workers: int(userTransactionsSecondaryWorkers),
 		opFunc: func(ctx context.Context, worker *SimpleWorker) error {
 			collection := bencher.PrimaryCollectionSecondaryRead()
 			userId := rand.Int31n(int32(NumUsers))
@@ -149,7 +161,7 @@ func (bencher *MongoBencher) OperationPool() []OperationPool {
 	}
 	idReadPool := &SimpleWorkerPool{
 		opType:  "primary_read",
-		workers: *bencher.bencherInstance.config.NumIDReadWorkers,
+		workers: int(primaryIDReadWorkers),
 		opFunc: func(ctx context.Context, worker *SimpleWorker) error {
 			collection := bencher.PrimaryCollection()
 			insertWorker := bencher.bencherInstance.RandomInsertWorker()
@@ -158,7 +170,7 @@ func (bencher *MongoBencher) OperationPool() []OperationPool {
 	}
 	secondaryIDReadPool := &SimpleWorkerPool{
 		opType:  "secondary_read",
-		workers: *bencher.bencherInstance.config.NumSecondaryIDReadWorkers,
+		workers: int(secondaryIDReadWorkers),
 		opFunc: func(ctx context.Context, worker *SimpleWorker) error {
 			insertWorker := bencher.bencherInstance.RandomInsertWorker()
 			return DoReadOp(ctx, insertWorker, bencher.PrimaryCollectionSecondaryRead())
@@ -166,7 +178,7 @@ func (bencher *MongoBencher) OperationPool() []OperationPool {
 	}
 	updateWorkerPool := &SimpleWorkerPool{
 		opType:  "update",
-		workers: *bencher.bencherInstance.config.NumUpdateWorkers,
+		workers: int(updateWorkers),
 		opFunc: func(ctx context.Context, worker *SimpleWorker) error {
 			insertWorker := bencher.bencherInstance.RandomInsertWorker()
 			if insertWorker.LastId == 0 {
@@ -187,7 +199,7 @@ func (bencher *MongoBencher) OperationPool() []OperationPool {
 	}
 	aggregationPool := &SimpleWorkerPool{
 		opType:  "aggregation",
-		workers: *bencher.bencherInstance.config.NumAggregationWorkers,
+		workers: int(aggregateReportWorkers),
 		opFunc: func(ctx context.Context, worker *SimpleWorker) error {
 			collection := bencher.PrimaryCollectionSecondaryRead()
 			ago := time.Now().UTC().Add(-5 * time.Second)
