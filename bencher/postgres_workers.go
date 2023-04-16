@@ -16,6 +16,7 @@ type PGTransaction struct {
 	UserID    int64     `db:"user_id"`
 	Amount    int       `db:"amount"`
 	Category  string    `db:"category"`
+	Metadata  string    `db:"metadata"`
 	CreatedAt time.Time `db:"created_at"`
 }
 
@@ -86,6 +87,7 @@ func (bencher *PostgresBencher) SetupDB() error {
       user_id BIGINT NOT NULL,
       amount INT NOT NULL,
       category VARCHAR(255) NOT NULL,
+      metadata VARCHAR(1024) NOT NULL,
       created_at TIMESTAMP NOT NULL
     )`
 
@@ -137,6 +139,7 @@ func (bencher *PostgresBencher) OperationPool() []OperationPool {
 				UserID:    userId,
 				Amount:    rand.Intn(10000),
 				Category:  RandomTransactionCategory(),
+				Metadata:  bencher.bencherInstance.RandomString(),
 				CreatedAt: time.Now(),
 			}
 			_, insertErr := bencher.DB.ExecContext(ctx, "INSERT INTO transactions (id, user_id, amount, category, metadata, created_at) VALUES ($1, $2, $3, $4, $5, $6)", txn.ID, txn.UserID, txn.Amount, txn.Category, txn.Metadata, txn.CreatedAt)

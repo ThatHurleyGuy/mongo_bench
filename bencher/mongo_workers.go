@@ -20,6 +20,7 @@ type Transaction struct {
 	UserID    int64     `bson:"user_id"`
 	Amount    int       `bson:"amount,omitempty"`
 	Category  string    `bson:"category,omitempty"`
+	Metadata  string    `bson:"metadat,omitempty"`
 	CreatedAt time.Time `bson:"created_at"`
 }
 
@@ -131,6 +132,7 @@ func (bencher *MongoBencher) OperationPool() []OperationPool {
 				UserID:    userId,
 				Amount:    rand.Intn(10000),
 				Category:  RandomTransactionCategory(),
+				Metadata:  bencher.bencherInstance.RandomString(),
 				CreatedAt: time.Now(),
 			}
 			_, insertErr := bencher.PrimaryCollection().InsertOne(ctx, txn)

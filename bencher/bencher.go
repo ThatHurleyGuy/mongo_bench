@@ -2,6 +2,7 @@ package bencher
 
 import (
 	"context"
+	"encoding/base64"
 	"fmt"
 	"log"
 	"math/rand"
@@ -55,6 +56,8 @@ type BencherInstance struct {
 	DatabaseBencher  DatabaseBencher `bson:"-"`
 }
 
+const NUMBER_RANDOM_STRINGS = 500000
+
 func NewBencher(ctx context.Context, config *Config) *BencherInstance {
 	bencher := &BencherInstance{
 		ID:               primitive.NewObjectID(),
@@ -62,7 +65,15 @@ func NewBencher(ctx context.Context, config *Config) *BencherInstance {
 		ctx:              ctx,
 		config:           config,
 		allInsertWorkers: []*InsertWorker{},
+		RandomStrings:    generateRandomStrings(100000, 1024),
 	}
+	go func() {
+		for {
+			// Regenerate random strings every so often
+			time.Sleep(30 * time.Second)
+			bencher.RandomStrings = generateRandomStrings(NUMBER_RANDOM_STRINGS, 1024)
+		}
+	}()
 	if strings.HasPrefix(*config.PrimaryURI, "mongodb") {
 		bencher.DatabaseBencher = &MongoBencher{
 			bencherInstance: bencher,
@@ -192,4 +203,25 @@ func (bencher *BencherInstance) Reset() {
 	if err != nil {
 		log.Fatal(err)
 	}
+}
+
+func (bencher *BencherInstance) RandomString() string {
+	index := rand.Intn(len(bencher.RandomStrings))
+	return bencher.RandomStrings[index]
+}
+
+func generateRandomStrings(n int, length int) []string {
+	result := make([]string, n)
+
+	for i := 0; i < n; i++ {
+		bytes := make([]byte, (length+3)/4*3)
+		if _, err := rand.Read(bytes); err != nil {
+			panic(err)
+		}
+
+		str := base64.RawURLEncoding.EncodeToString(bytes)[:length]
+		result[i] = str
+	}
+
+	return result
 }
