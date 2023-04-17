@@ -1,7 +1,3 @@
-/*
-Copyright © 2022 NAME HERE <EMAIL ADDRESS>
-
-*/
 package cmd
 
 import (
@@ -12,7 +8,6 @@ import (
 	"github.com/thathurleyguy/mongo_bench/bencher"
 )
 
-// rootCmd represents the base command when called without any subcommands
 var (
 	config bencher.Config
 
@@ -25,9 +20,6 @@ var (
 			defer cancel()
 
 			bencher := bencher.NewBencher(ctx, &config)
-			if *config.MetadataURI == "" {
-				config.MetadataURI = config.PrimaryURI
-			}
 
 			bencher.Start()
 		},
@@ -43,15 +35,13 @@ func Execute() {
 
 func init() {
 	config = bencher.Config{}
-	config.NumInsertWorkers = rootCmd.Flags().Int("insert-workers", 1, "Number of insert worker goroutines to run")
-	config.NumIDReadWorkers = rootCmd.Flags().Int("id-read-workers", 1, "Number of id read worker goroutines to run")
-	config.NumSecondaryIDReadWorkers = rootCmd.Flags().Int("secondary-id-read-workers", 1, "Number of secondary id read worker goroutines to run")
-	config.NumAggregationWorkers = rootCmd.Flags().Int("aggregation-works", 1, "Number of aggregation worker goroutines to run")
-	config.NumUpdateWorkers = rootCmd.Flags().Int("update-workers", 1, "Number of update worker goroutines to run")
+	config.NumWorkers = rootCmd.Flags().IntP("num-workers", "n", 10, "Number of worker goroutines to run")
+	config.WorkerReadWriteRatio = rootCmd.Flags().IntP("worker-read-write-ratio", "w", 1, "Ratio of read to write workers")
 	config.StatTickSpeedMillis = rootCmd.Flags().Int("stat-tick-speed", 100, "Milliseconds between stat updates")
 	config.PrimaryURI = rootCmd.PersistentFlags().StringP("primary", "p", "", "Primary cluster to connect to")
+	config.ReaderURI = rootCmd.PersistentFlags().StringP("reader", "s", "", "Reader URI connection")
+	config.MetadataURI = rootCmd.PersistentFlags().StringP("metadata", "m", "", "Mongo cluster for metadata storage")
 	rootCmd.MarkFlagRequired("primary")
-	config.SecondaryURI = rootCmd.Flags().StringP("secondary", "s", "", "Secondary cluster to connect to. Used to test dual reads in mongobetween")
-	config.MetadataURI = rootCmd.Flags().StringP("metadata", "m", "", "Metadata cluster to store benchmark state, defaults to primary cluster")
 	config.Reset = rootCmd.Flags().BoolP("reset", "r", false, "Reset clusters DBs before starting")
+	config.Sharded = rootCmd.Flags().Bool("sharded", false, "Enable sharding on user_id")
 }
